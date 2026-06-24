@@ -111,6 +111,7 @@ ai init fish | source
 | `ai init [fish]`        | Print integration snippet                    |
 | `ai config`             | Show effective configuration                 |
 | `--model <name>`        | Override the model for one call              |
+| `--debug`               | With `-N`: print the command + output used as context, before the answer |
 
 ## Platform
 

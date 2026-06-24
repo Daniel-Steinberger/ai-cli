@@ -5,6 +5,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- `--debug` flag: when used with `-N`, prints the command, exit code and output
+  that were used as context (before the model's answer).
+
 ### Fixed
 - fish integration now records with `script -f` (flush after each write) so
   `ai -N` immediately sees the most recent command instead of lagging behind
