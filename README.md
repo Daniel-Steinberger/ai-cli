@@ -30,8 +30,36 @@ to the model so answers and suggested commands match your environment.
 
 ## Install
 
+### As a global tool (recommended)
+
+Install the `ai` command onto your `PATH` with uv — no `uv run` prefix needed
+afterwards (this also matters for Feature 2, which calls `ai` from inside your
+recorded shell):
+
+```sh
+# From a local checkout:
+uv tool install .
+
+# Or straight from the repository (once pushed):
+uv tool install git+https://github.com/<you>/ai-cli
+
+# Upgrade later:
+uv tool upgrade ai-cli
+```
+
+After installing, `ai`, `ai install`, `ai config`, etc. work directly.
+
+Run it once without installing (ephemeral, from a checkout):
+
+```sh
+uvx --from . ai how to list files by size
+```
+
+### For development
+
 ```sh
 uv sync
+uv run ai --help
 ```
 
 ## Configure
