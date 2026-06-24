@@ -4,20 +4,21 @@ from ai_cli import cli
 
 
 def test_extract_model_spaced():
-    model, debug, rest = cli._extract_options(["--model", "gpt-x", "hello", "world"])
+    model, debug, interactive, rest = cli._extract_options(["--model", "gpt-x", "hello", "world"])
     assert model == "gpt-x"
     assert debug is False
+    assert interactive is False
     assert rest == ["hello", "world"]
 
 
 def test_extract_model_equals():
-    model, debug, rest = cli._extract_options(["--model=gpt-y", "-1", "explain"])
+    model, debug, interactive, rest = cli._extract_options(["--model=gpt-y", "-1", "explain"])
     assert model == "gpt-y"
     assert rest == ["-1", "explain"]
 
 
 def test_extract_debug_flag():
-    model, debug, rest = cli._extract_options(["--debug", "-1", "explain"])
+    model, debug, interactive, rest = cli._extract_options(["--debug", "-1", "explain"])
     assert debug is True
     assert model is None
     assert rest == ["-1", "explain"]
@@ -25,22 +26,38 @@ def test_extract_debug_flag():
 
 def test_extract_option_after_offset():
     # The reported bug: `ai -4 --debug explain` must still activate --debug.
-    model, debug, rest = cli._extract_options(["-4", "--debug", "explain"])
+    model, debug, interactive, rest = cli._extract_options(["-4", "--debug", "explain"])
     assert debug is True
     assert rest == ["-4", "explain"]
 
 
+def test_extract_interactive_flag():
+    model, debug, interactive, rest = cli._extract_options(["-i", "-1"])
+    assert interactive is True
+    assert rest == ["-1"]
+    model, debug, interactive, rest = cli._extract_options(["--interactive", "hi", "there"])
+    assert interactive is True
+    assert rest == ["hi", "there"]
+
+
+def test_extract_interactive_with_offset_and_text_any_order():
+    model, debug, interactive, rest = cli._extract_options(["-3", "-i", "fasse", "zusammen"])
+    assert interactive is True
+    assert rest == ["-3", "fasse", "zusammen"]
+
+
 def test_extract_debug_and_model_any_order():
-    model, debug, rest = cli._extract_options(["-2", "--debug", "--model", "m", "why"])
+    model, debug, interactive, rest = cli._extract_options(["-2", "--debug", "--model", "m", "why"])
     assert debug is True
     assert model == "m"
     assert rest == ["-2", "why"]
 
 
 def test_no_option():
-    model, debug, rest = cli._extract_options(["how", "to", "list"])
+    model, debug, interactive, rest = cli._extract_options(["how", "to", "list"])
     assert model is None
     assert debug is False
+    assert interactive is False
     assert rest == ["how", "to", "list"]
 
 

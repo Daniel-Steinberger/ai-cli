@@ -26,6 +26,20 @@ features built for the terminal:
    fail?"`, …) is interpreted against those commands, their output, and exit codes.
    Add `--debug` to print exactly what was used as context.
 
+3. **Interactive chat** — `ai -i` opens a multi-turn chat:
+
+   ```
+   ai -i                     # plain chat
+   ai -i -3                  # chat seeded with the last 3 commands as context
+   ai -i -1 "why?"           # context + an opening question
+   ```
+
+   Quit with **^D** or `exit` / `quit` / `bye` / `q`. When the assistant suggests a
+   command you're asked to run it (y/N); its output is **fed back into the chat** so
+   the assistant can react to the real result. Commands run on the real terminal, so
+   `sudo` can prompt for a password (hidden). Line editing and history come from
+   readline.
+
 The tool is **shell-aware** (fish/zsh/bash): the detected shell and OS are passed
 to the model so answers and suggested commands match your environment.
 
@@ -117,9 +131,11 @@ ai init fish | source
 |-------------------------|----------------------------------------------|
 | `ai <question...>`      | Ask anything (Feature 1)                     |
 | `ai -N <instruction>`   | Explain the last N commands (Feature 2)      |
+| `ai -i [-N] [text]`     | Interactive chat; optional `-N`/text seed context |
 | `ai install [fish]`     | Install shell integration                    |
 | `ai init [fish]`        | Print integration snippet                    |
 | `ai config`             | Show effective configuration                 |
+| `-i`, `--interactive`   | Start an interactive chat                    |
 | `--model <name>`        | Override the model for one call              |
 | `--debug`               | With `-N`: print the command + output used as context, before the answer |
 

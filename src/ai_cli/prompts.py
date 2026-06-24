@@ -28,6 +28,18 @@ direct. If you suggest a follow-up command, put it in a fenced code block tagged
 the shell name (```{shell_name}).
 """
 
+_CHAT_TEMPLATE = """\
+You are `ai`, a helpful, concise command-line assistant in an interactive chat.
+Environment: {shell}.
+
+- Be brief and direct; this is a terminal conversation.
+- When you propose a command for the user to run, put it in a fenced code block
+  tagged with the shell name (```{shell_name}), containing only the runnable
+  command(s). The user will be asked whether to run it, and its output will be fed
+  back to you so you can react to the actual result.
+- Any command MUST be valid for this shell ({shell_name}) and OS. Do not invent flags.
+"""
+
 
 def ask_system_prompt(shell: ShellInfo) -> str:
     return _ASK_TEMPLATE.format(shell=shell.describe(), shell_name=shell.name)
@@ -37,8 +49,12 @@ def explain_system_prompt(shell: ShellInfo) -> str:
     return _EXPLAIN_TEMPLATE.format(shell=shell.describe(), shell_name=shell.name)
 
 
-def explain_user_prompt(blocks, instruction: str) -> str:
-    """Render one or more command blocks (oldest first) plus the user's instruction.
+def chat_system_prompt(shell: ShellInfo) -> str:
+    return _CHAT_TEMPLATE.format(shell=shell.describe(), shell_name=shell.name)
+
+
+def format_blocks(blocks) -> str:
+    """Render one or more command blocks (oldest first) as text.
 
     `blocks` is a sequence of objects with .cmd, .output and .exit_code attributes.
     """
@@ -50,6 +66,33 @@ def explain_user_prompt(blocks, instruction: str) -> str:
             f"Command {i} (exit code {exit_str}):\n```\n{b.cmd}\n```\n"
             f"Output:\n```\n{output}\n```"
         )
+    return "\n\n".join(parts)
+
+
+def explain_user_prompt(blocks, instruction: str) -> str:
     n = len(blocks)
     header = "the previous command" if n == 1 else f"the previous {n} commands"
-    return f"Here {'is' if n == 1 else 'are'} {header} and their output:\n\n" + "\n\n".join(parts) + f"\n\nInstruction: {instruction}"
+    return (
+        f"Here {'is' if n == 1 else 'are'} {header} and their output:\n\n"
+        f"{format_blocks(blocks)}\n\nInstruction: {instruction}"
+    )
+
+
+def chat_context_message(blocks) -> str:
+    """Initial context block injected into the chat system prompt."""
+    n = len(blocks)
+    header = "the previous command" if n == 1 else f"the previous {n} commands"
+    return (
+        f"\nFor context, here {'is' if n == 1 else 'are'} {header} the user just ran, "
+        f"with output:\n\n{format_blocks(blocks)}\n"
+    )
+
+
+def command_result_message(cmd: str, output: str, exit_code: int | None) -> str:
+    """A user-role message reporting the result of a command the assistant suggested."""
+    exit_str = "unknown" if exit_code is None else str(exit_code)
+    body = output if output.strip() else "(no output)"
+    return (
+        f"I ran that command:\n```\n{cmd}\n```\n"
+        f"It exited with code {exit_str}. Output:\n```\n{body}\n```"
+    )

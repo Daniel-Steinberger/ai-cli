@@ -5,6 +5,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **Interactive chat mode** (`ai -i`): multi-turn conversation with readline line
+  editing/history, exit via ^D or `exit`/`quit`/`bye`/`q`. Optional leading `-N`
+  and/or text seed the chat with recent-command context. Suggested commands can be
+  run (y/N) and their output is **fed back into the conversation**; commands run on
+  the real terminal via a PTY, so `sudo` can prompt for a password (hidden, and not
+  captured into the chat). No new dependencies (`readline`/`pty` are stdlib).
+
 ### Changed
 - `-N` now uses the **last N commands** as context (oldest first), not just the
   N-th last single command. `-1` is the previous command, `-3` the last three.

@@ -18,6 +18,7 @@ import sys
 from rich.console import Console
 
 from . import ask as ask_mod
+from . import chat as chat_mod
 from . import integration
 from .config import config_file, load_config
 from .context import NoSessionError, get_blocks
@@ -31,29 +32,34 @@ ai — CLI for OpenAI-compatible models
   ai <question...>          Ask anything; e.g. ai how to list files by size
   ai -N <instruction...>    Use the last N commands + output as context
                             e.g. ai -1 explain  (or -3 for the last three)
+  ai -i [-N] [text...]      Interactive chat; optional -N / text seed the context
   ai install [fish]         Install shell integration (enables ai -N)
   ai init [fish]            Print integration snippet (ai init fish | source)
   ai config                 Show effective configuration
 
 Options:
+  -i, --interactive         Start an interactive chat (^D or 'exit' to quit)
   --model <name>            Override the model for this call
   --debug                   With -N: print the command(s) + output used as context
   -h, --help                Show this help
 """
 
 
-def _extract_options(args: list[str]) -> tuple[str | None, bool, list[str]]:
-    """Pull options (`--model X`/`--model=X`, `--debug`) from anywhere in the args,
-    so order does not matter (e.g. `ai -3 --debug explain` works). Returns
-    (model_override, debug, remaining_args)."""
+def _extract_options(args: list[str]) -> tuple[str | None, bool, bool, list[str]]:
+    """Pull options (`--model X`/`--model=X`, `--debug`, `-i`/`--interactive`) from
+    anywhere in the args, so order does not matter (e.g. `ai -3 --debug explain` or
+    `ai -i -1`). Returns (model_override, debug, interactive, remaining_args)."""
     model = None
     debug = False
+    interactive = False
     rest: list[str] = []
     i = 0
     while i < len(args):
         a = args[i]
         if a == "--debug":
             debug = True
+        elif a in ("-i", "--interactive"):
+            interactive = True
         elif a.startswith("--model="):
             model = a.split("=", 1)[1]
         elif a == "--model" and i + 1 < len(args):
@@ -62,7 +68,7 @@ def _extract_options(args: list[str]) -> tuple[str | None, bool, list[str]]:
         else:
             rest.append(a)
         i += 1
-    return model, debug, rest
+    return model, debug, interactive, rest
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -81,24 +87,42 @@ def main(argv: list[str] | None = None) -> int:
     if argv[0] == "config":
         return _show_config(console)
 
-    model_override, debug, rest = _extract_options(argv)
+    model_override, debug, interactive, rest = _extract_options(argv)
 
-    if not rest:
+    if not rest and not interactive:
         console.print(USAGE, highlight=False)
         return 0
 
     config = load_config(model_override=model_override)
 
-    # Feature 2: leading -N offset.
-    m = _OFFSET.match(rest[0])
-    if m:
-        offset = int(m.group(1))
-        instruction = " ".join(rest[1:]).strip() or "explain"
+    # A leading -N offset selects command context (used by both -i and Feature 2).
+    offset = None
+    if rest:
+        m = _OFFSET.match(rest[0])
+        if m:
+            offset = int(m.group(1))
+            rest = rest[1:]
+
+    if interactive:
+        return _interactive(config, offset, " ".join(rest).strip(), console)
+
+    if offset is not None:
+        instruction = " ".join(rest).strip() or "explain"
         return _explain(config, offset, instruction, console, debug=debug)
 
     # Feature 1: free-form question.
-    question = " ".join(rest).strip()
-    return ask_mod.ask(config, question, console)
+    return ask_mod.ask(config, " ".join(rest).strip(), console)
+
+
+def _interactive(config, offset: int | None, initial_text: str, console: Console) -> int:
+    shell = detect_shell()
+    blocks = None
+    if offset is not None:
+        try:
+            blocks = get_blocks(offset)
+        except (NoSessionError, ValueError) as exc:
+            console.print(f"[yellow]No command context:[/yellow] {exc}")
+    return chat_mod.chat(config, console, shell, blocks=blocks, initial_text=initial_text or None)
 
 
 def _explain(config, offset: int, instruction: str, console: Console, *, debug: bool = False) -> int:
