@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# uv / venv / build
+.venv/
+dist/
+build/
+
+# Local config & recorded sessions (never commit secrets or terminal logs)
+*.typescript
+.env

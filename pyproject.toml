@@ -1,0 +1,26 @@
+[project]
+name = "ai-cli"
+version = "0.1.0"
+description = "CLI tool for interacting with OpenAI-API-compatible models, with shell-context awareness"
+readme = "README.md"
+authors = [
+    { name = "Daniel Steinberger", email = "daniel.steinberger@dvs.ag" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=1.40",
+    "rich>=13.7",
+    "platformdirs>=4.2",
+]
+
+[project.scripts]
+ai = "ai_cli.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.8,<0.10.0"]
+build-backend = "uv_build"
