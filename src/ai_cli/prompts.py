@@ -19,12 +19,13 @@ Guidelines:
 """
 
 _EXPLAIN_TEMPLATE = """\
-You are `ai`, a concise command-line assistant. The user ran a command in their
-terminal and now asks about it. Environment: {shell}.
+You are `ai`, a concise command-line assistant. The user ran one or more commands
+in their terminal and now asks about them. Environment: {shell}.
 
-You are given the previous command, its output, and its exit code. Interpret the
-user's instruction in that context. Be brief and direct. If you suggest a follow-up
-command, put it in a fenced code block tagged with the shell name (```{shell_name}).
+You are given the previous command(s), their output, and exit codes, in
+chronological order. Interpret the user's instruction in that context. Be brief and
+direct. If you suggest a follow-up command, put it in a fenced code block tagged with
+the shell name (```{shell_name}).
 """
 
 
@@ -36,10 +37,19 @@ def explain_system_prompt(shell: ShellInfo) -> str:
     return _EXPLAIN_TEMPLATE.format(shell=shell.describe(), shell_name=shell.name)
 
 
-def explain_user_prompt(cmd: str, output: str, exit_code: int | None, instruction: str) -> str:
-    exit_str = "unknown" if exit_code is None else str(exit_code)
-    return (
-        f"Previous command:\n```\n{cmd}\n```\n\n"
-        f"Output (exit code {exit_str}):\n```\n{output}\n```\n\n"
-        f"Instruction: {instruction}"
-    )
+def explain_user_prompt(blocks, instruction: str) -> str:
+    """Render one or more command blocks (oldest first) plus the user's instruction.
+
+    `blocks` is a sequence of objects with .cmd, .output and .exit_code attributes.
+    """
+    parts = []
+    for i, b in enumerate(blocks, 1):
+        exit_str = "unknown" if b.exit_code is None else str(b.exit_code)
+        output = b.output if b.output else "(no output)"
+        parts.append(
+            f"Command {i} (exit code {exit_str}):\n```\n{b.cmd}\n```\n"
+            f"Output:\n```\n{output}\n```"
+        )
+    n = len(blocks)
+    header = "the previous command" if n == 1 else f"the previous {n} commands"
+    return f"Here {'is' if n == 1 else 'are'} {header} and their output:\n\n" + "\n\n".join(parts) + f"\n\nInstruction: {instruction}"

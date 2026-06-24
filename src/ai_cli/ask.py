@@ -40,10 +40,10 @@ def ask(config: Config, question: str, console: Console) -> int:
     return 0
 
 
-def explain(config: Config, block_cmd: str, block_output: str, exit_code: int | None,
-            instruction: str, console: Console, shell: ShellInfo) -> int:
+def explain(config: Config, blocks, instruction: str, console: Console,
+            shell: ShellInfo) -> int:
     system = explain_system_prompt(shell)
-    user = explain_user_prompt(block_cmd, block_output, exit_code, instruction)
+    user = explain_user_prompt(blocks, instruction)
     answer = _stream_and_render(config, system, user, console)
     offer_to_run(answer, shell, console)
     return 0

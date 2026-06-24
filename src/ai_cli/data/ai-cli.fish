@@ -11,14 +11,17 @@
 if status is-interactive
     if set -q AI_CLI_RECORDING
         # We are already inside a recorded session: install the markers.
+        # Custom OSC 1337 markers (AICMD / AIOUT / AIEND). We do NOT reuse OSC 133
+        # because fish 4.x emits its own 133;A/C/D prompt markers, which would
+        # collide and corrupt parsing.
         if type -q base64
             function __ai_cli_preexec --on-event fish_preexec
                 set -l b64 (printf '%s' "$argv[1]" | base64 | tr -d '\n')
-                printf '\x1b]1337;AICMD=%s\x07\x1b]133;C\x07' $b64
+                printf '\x1b]1337;AICMD=%s\x07\x1b]1337;AIOUT\x07' $b64
             end
             function __ai_cli_postexec --on-event fish_postexec
                 set -l st $status
-                printf '\x1b]133;D;%s\x07' $st
+                printf '\x1b]1337;AIEND=%s\x07' $st
             end
         end
     else if type -q script

@@ -21,9 +21,10 @@ features built for the terminal:
    dst@pc ~/s/ai-cli> ai -1 explain
    ```
 
-   `-N` goes back N commands (`-1` is the previous one). The instruction after it
-   (`explain`, `"why did this fail?"`, …) is interpreted against that command,
-   its output, and its exit code.
+   `-N` uses the **last N commands** as context (`-1` is just the previous one,
+   `-3` the last three). The instruction after it (`explain`, `"why did this
+   fail?"`, …) is interpreted against those commands, their output, and exit codes.
+   Add `--debug` to print exactly what was used as context.
 
 The tool is **shell-aware** (fish/zsh/bash): the detected shell and OS are passed
 to the model so answers and suggested commands match your environment.
@@ -106,7 +107,7 @@ ai init fish | source
 | command                 | description                                  |
 |-------------------------|----------------------------------------------|
 | `ai <question...>`      | Ask anything (Feature 1)                     |
-| `ai -N <instruction>`   | Explain the N-th last command (Feature 2)    |
+| `ai -N <instruction>`   | Explain the last N commands (Feature 2)      |
 | `ai install [fish]`     | Install shell integration                    |
 | `ai init [fish]`        | Print integration snippet                    |
 | `ai config`             | Show effective configuration                 |

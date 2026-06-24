@@ -1,14 +1,17 @@
 """Feature 2: parse the recorded shell-session typescript into command blocks.
 
-The fish integration (see shell/ai-cli.fish) records the interactive session with
-`script(1)` and emits invisible OSC markers around each command:
+The fish integration (see data/ai-cli.fish) records the interactive session with
+`script(1)` and emits invisible custom OSC 1337 markers around each command:
 
-    preexec:  ESC ] 1337 ; AICMD=<base64(command)> BEL   ESC ] 133 ; C BEL
-    postexec: ESC ] 133 ; D ; <exit-code> BEL
+    preexec:  ESC ] 1337 ; AICMD=<base64(command)> BEL   ESC ] 1337 ; AIOUT BEL
+    postexec: ESC ] 1337 ; AIEND=<exit-code> BEL
 
-A *completed* block therefore looks like:  AICMD ... C <output> D
-The currently-running `ai` invocation has emitted AICMD+C but not yet D, so it is
-naturally excluded (we only finalize blocks that reach a D marker).
+A *completed* block therefore looks like:  AICMD AIOUT <output> AIEND
+The currently-running `ai` invocation has emitted AICMD+AIOUT but not yet AIEND, so
+it is naturally excluded (we only finalize blocks that reach an AIEND marker).
+
+We deliberately do NOT reuse OSC 133 (the de-facto "semantic prompt" markers),
+because fish 4.x emits its own 133;A/C/D sequences, which would collide.
 """
 
 from __future__ import annotations
@@ -26,8 +29,8 @@ BEL = "\x07"
 
 _MARKER = re.compile(
     r"\x1b\]1337;AICMD=(?P<cmd>[A-Za-z0-9+/=]*)\x07"
-    r"|\x1b\]133;C\x07"
-    r"|\x1b\]133;D;(?P<exit>-?\d+)\x07"
+    r"|\x1b\]1337;AIOUT\x07"
+    r"|\x1b\]1337;AIEND=(?P<exit>-?\d+)\x07"
 )
 
 # CSI sequences, OSC sequences (terminated by BEL or ST), and stray single-char escapes.
@@ -92,10 +95,10 @@ def parse_blocks(text: str) -> list[CommandBlock]:
     out_start: int | None = None
 
     for m in _MARKER.finditer(text):
-        if m.group("cmd") is not None:  # AICMD marker -> a new command begins
+        if m.group("cmd") is not None:  # AICMD -> a new command begins
             cur_cmd = _decode_cmd(m.group("cmd"))
             out_start = None
-        elif m.group("exit") is not None:  # D marker -> command finished
+        elif m.group("exit") is not None:  # AIEND -> command finished
             if cur_cmd is not None and out_start is not None:
                 output = strip_ansi(text[out_start : m.start()]).strip("\n")
                 blocks.append(
@@ -103,7 +106,7 @@ def parse_blocks(text: str) -> list[CommandBlock]:
                 )
             cur_cmd = None
             out_start = None
-        else:  # C marker -> output region begins
+        else:  # AIOUT -> output region begins
             if cur_cmd is not None:
                 out_start = m.end()
     return blocks
@@ -112,6 +115,24 @@ def parse_blocks(text: str) -> list[CommandBlock]:
 def read_session_text(path: Path | None = None) -> str:
     path = path or session_file()
     return path.read_text(encoding="utf-8", errors="replace")
+
+
+def get_blocks(n: int, *, path: Path | None = None, max_output_chars: int = 6000) -> list[CommandBlock]:
+    """Return the last N completed command blocks, oldest first. `-1` -> last command,
+    `-4` -> the last four. Fewer are returned if fewer were recorded."""
+    if n < 1:
+        raise ValueError("command offset must be >= 1")
+    blocks = parse_blocks(read_session_text(path))
+    if not blocks:
+        raise NoSessionError(
+            "No previous commands recorded yet. Run `ai install` and restart your "
+            "shell, then run a command before using `ai -N`."
+        )
+    selected = blocks[-n:]
+    for block in selected:
+        if len(block.output) > max_output_chars:
+            block.output = _elide(block.output, max_output_chars)
+    return selected
 
 
 def get_block(n: int, *, path: Path | None = None, max_output_chars: int = 6000) -> CommandBlock:

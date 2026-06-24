@@ -20,7 +20,7 @@ from rich.console import Console
 from . import ask as ask_mod
 from . import integration
 from .config import config_file, load_config
-from .context import NoSessionError, get_block
+from .context import NoSessionError, get_blocks
 from .shell import detect_shell
 
 _OFFSET = re.compile(r"^-(\d+)$")
@@ -29,8 +29,8 @@ USAGE = """\
 ai — CLI for OpenAI-compatible models
 
   ai <question...>          Ask anything; e.g. ai how to list files by size
-  ai -N <instruction...>    Use the N-th last command + output as context
-                            e.g. ai -1 explain
+  ai -N <instruction...>    Use the last N commands + output as context
+                            e.g. ai -1 explain  (or -3 for the last three)
   ai install [fish]         Install shell integration (enables ai -N)
   ai init [fish]            Print integration snippet (ai init fish | source)
   ai config                 Show effective configuration
@@ -42,24 +42,27 @@ Options:
 """
 
 
-def _consume_leading_options(args: list[str]) -> tuple[str | None, bool, list[str]]:
-    """Pull leading options (`--model X`, `--debug`) off the front of the args.
-    Returns (model_override, debug, remaining_args)."""
+def _extract_options(args: list[str]) -> tuple[str | None, bool, list[str]]:
+    """Pull options (`--model X`/`--model=X`, `--debug`) from anywhere in the args,
+    so order does not matter (e.g. `ai -3 --debug explain` works). Returns
+    (model_override, debug, remaining_args)."""
     model = None
     debug = False
-    while args and args[0].startswith("--"):
-        if args[0] == "--debug":
+    rest: list[str] = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--debug":
             debug = True
-            args = args[1:]
-        elif args[0].startswith("--model="):
-            model = args[0].split("=", 1)[1]
-            args = args[1:]
-        elif args[0] == "--model" and len(args) >= 2:
-            model = args[1]
-            args = args[2:]
+        elif a.startswith("--model="):
+            model = a.split("=", 1)[1]
+        elif a == "--model" and i + 1 < len(args):
+            model = args[i + 1]
+            i += 1
         else:
-            break
-    return model, debug, args
+            rest.append(a)
+        i += 1
+    return model, debug, rest
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -78,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     if argv[0] == "config":
         return _show_config(console)
 
-    model_override, debug, rest = _consume_leading_options(argv)
+    model_override, debug, rest = _extract_options(argv)
 
     if not rest:
         console.print(USAGE, highlight=False)
@@ -100,30 +103,30 @@ def main(argv: list[str] | None = None) -> int:
 
 def _explain(config, offset: int, instruction: str, console: Console, *, debug: bool = False) -> int:
     try:
-        block = get_block(offset)
+        blocks = get_blocks(offset)
     except (NoSessionError, ValueError) as exc:
         console.print(f"[red]Error:[/red] {exc}")
         return 1
     if debug:
-        _print_debug_block(offset, block, console)
+        _print_debug_blocks(offset, blocks, console)
     shell = detect_shell()
-    return ask_mod.explain(
-        config, block.cmd, block.output, block.exit_code, instruction, console, shell
-    )
+    return ask_mod.explain(config, blocks, instruction, console, shell)
 
 
-def _print_debug_block(offset: int, block, console: Console) -> None:
+def _print_debug_blocks(offset: int, blocks, console: Console) -> None:
     from rich.panel import Panel
 
-    exit_str = "?" if block.exit_code is None else str(block.exit_code)
-    body = (
-        f"[bold]command:[/bold] {block.cmd}\n"
-        f"[bold]exit:[/bold] {exit_str}\n"
-        f"[bold]output:[/bold]\n{block.output or '[dim](no output)[/dim]'}"
-    )
+    sections = []
+    for i, b in enumerate(blocks, 1):
+        exit_str = "?" if b.exit_code is None else str(b.exit_code)
+        sections.append(
+            f"[bold cyan]\\[{i}/{len(blocks)}] command:[/bold cyan] {b.cmd}\n"
+            f"[bold]exit:[/bold] {exit_str}\n"
+            f"[bold]output:[/bold]\n{b.output or '[dim](no output)[/dim]'}"
+        )
+    title = f"[dim]--debug: {len(blocks)} command(s) used as context (-{offset})[/dim]"
     console.print(
-        Panel(body, title=f"[dim]--debug: context used (-{offset})[/dim]",
-              border_style="yellow", highlight=False)
+        Panel("\n\n".join(sections), title=title, border_style="yellow", highlight=False)
     )
 
 
