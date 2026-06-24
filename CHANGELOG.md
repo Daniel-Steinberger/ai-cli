@@ -11,7 +11,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 - `--debug` flag: when used with `-N`, prints the command(s), exit code(s) and
-  output(s) used as context (before the model's answer).
+  output(s) used as context (before the model is contacted).
+
+### Docs
+- Clarify how to update a locally-installed tool (`uv tool install . --reinstall`);
+  `uv tool upgrade` only works for git/index installs.
 
 ### Fixed
 - Options (`--debug`, `--model`) are now recognised anywhere in the arguments,

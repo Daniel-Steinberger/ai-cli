@@ -43,12 +43,21 @@ uv tool install .
 
 # Or straight from the repository (once pushed):
 uv tool install git+https://github.com/<you>/ai-cli
-
-# Upgrade later:
-uv tool upgrade ai-cli
 ```
 
 After installing, `ai`, `ai install`, `ai config`, etc. work directly.
+
+**Updating after code changes:** a local `uv tool install .` is a frozen snapshot
+— it does *not* pick up later edits to the checkout, and `uv tool upgrade` only
+works for git/index installs. After pulling or editing the source, reinstall:
+
+```sh
+uv tool install . --reinstall      # local checkout: rebuild from current source
+uv tool upgrade ai-cli             # only for git/index installs
+```
+
+During development you can skip the global install entirely and use `uv run ai …`
+from the checkout (always runs current source).
 
 Run it once without installing (ephemeral, from a checkout):
 
