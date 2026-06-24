@@ -1,0 +1,12 @@
+# Example configuration for `ai`.
+# Copy to ~/.config/ai-cli/config.toml and edit. All keys are optional;
+# precedence is: CLI flag > environment variable > this file > built-in default.
+
+# OpenAI-compatible API endpoint.
+base_url = "https://api.openai.com/v1"
+
+# Model name to use (must exist on the endpoint above).
+model = "gpt-4o-mini"
+
+# API key. Prefer the OPENAI_API_KEY environment variable over storing it here.
+# api_key = "sk-..."

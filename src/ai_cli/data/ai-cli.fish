@@ -29,10 +29,12 @@ if status is-interactive
         set -gx AI_CLI_RECORDING 1
         set -gx AI_CLI_SHELL fish
         set -gx AI_CLI_SESSION "$dir/"(date '+%Y%m%d-%H%M%S')"-$fish_pid.typescript"
+        # -f / -F flush after every write so `ai -N` sees the latest command
+        # immediately (otherwise script block-buffers and recent output lags).
         if test (uname) = Darwin
-            exec script -q "$AI_CLI_SESSION" fish
+            exec script -q -F "$AI_CLI_SESSION" fish
         else
-            exec script -q -e -c fish "$AI_CLI_SESSION"
+            exec script -q -f -e -c fish "$AI_CLI_SESSION"
         end
     end
 end

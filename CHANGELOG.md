@@ -5,6 +5,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- fish integration now records with `script -f` (flush after each write) so
+  `ai -N` immediately sees the most recent command instead of lagging behind
+  `script`'s block buffer.
+
+### Added
+- `config.toml.example` at the repo root, kept in sync with `config.py`.
+
 ## [0.1.0] - 2026-06-24
 
 ### Added

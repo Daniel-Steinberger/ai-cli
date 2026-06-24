@@ -24,6 +24,8 @@ command has no `D` yet so it is excluded automatically.
 ## Conventions (user-mandated)
 - Plans live in `plans/` named `YYYY-MM-DD_NNN_Short_Description.md` (date, 3-digit counter).
 - Maintain `CHANGELOG.md` (Keep a Changelog style) on every change.
+- Keep `config.toml.example` (repo root) in sync with the config keys in
+  `src/ai_cli/config.py` — whenever a config key is added/changed/removed, update the example.
 
 ## Dev
 - `uv sync` then `uv run pytest -q`.
