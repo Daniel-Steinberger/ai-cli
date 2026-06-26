@@ -40,6 +40,18 @@ features built for the terminal:
    `sudo` can prompt for a password (hidden). Line editing and history come from
    readline.
 
+**Piping:** anything piped into `ai` is added as input/context, so it composes with
+other tools:
+
+```
+cat error.log | ai "why does this fail?"
+curl -s https://en.wikipedia.org/api/rest_v1/page/summary/Albert_Einstein \
+  | jq -r .extract | ai "übersetze das auf deutsch"
+```
+
+Piped input works with `-N` and `-i` too. When stdin is piped, the run-it prompt is
+skipped (there's no interactive input to answer it).
+
 The tool is **shell-aware** (fish/zsh/bash): the detected shell and OS are passed
 to the model so answers and suggested commands match your environment.
 
@@ -130,6 +142,7 @@ ai init fish | source
 | command                 | description                                  |
 |-------------------------|----------------------------------------------|
 | `ai <question...>`      | Ask anything (Feature 1)                     |
+| `<cmd> \| ai <q...>`     | Pipe input as context for the question       |
 | `ai -N <instruction>`   | Explain the last N commands (Feature 2)      |
 | `ai -i [-N] [text]`     | Interactive chat; optional `-N`/text seed context |
 | `ai install [fish]`     | Install shell integration                    |

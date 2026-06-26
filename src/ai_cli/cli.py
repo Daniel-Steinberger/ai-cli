@@ -26,10 +26,23 @@ from .shell import detect_shell
 
 _OFFSET = re.compile(r"^-(\d+)$")
 
+
+def _read_piped_stdin() -> str | None:
+    """Return stdin content if something was piped in (stdin is not a TTY), else None."""
+    if sys.stdin is None or sys.stdin.isatty():
+        return None
+    try:
+        data = sys.stdin.read()
+    except (OSError, ValueError):
+        return None
+    data = data.strip()
+    return data or None
+
 USAGE = """\
 ai — CLI for OpenAI-compatible models
 
   ai <question...>          Ask anything; e.g. ai how to list files by size
+  <cmd> | ai <question...>  Pipe input as context; e.g. cat err.log | ai "why?"
   ai -N <instruction...>    Use the last N commands + output as context
                             e.g. ai -1 explain  (or -3 for the last three)
   ai -i [-N] [text...]      Interactive chat; optional -N / text seed the context
@@ -89,7 +102,11 @@ def main(argv: list[str] | None = None) -> int:
 
     model_override, debug, interactive, rest = _extract_options(argv)
 
-    if not rest and not interactive:
+    # Read piped stdin first (e.g. `… | ai "translate"`); this also lets us treat a
+    # bare `… | ai` (no args) as a real request rather than printing usage.
+    stdin_text = _read_piped_stdin()
+
+    if not rest and not interactive and not stdin_text:
         console.print(USAGE, highlight=False)
         return 0
 
@@ -104,17 +121,18 @@ def main(argv: list[str] | None = None) -> int:
             rest = rest[1:]
 
     if interactive:
-        return _interactive(config, offset, " ".join(rest).strip(), console)
+        return _interactive(config, offset, " ".join(rest).strip(), console, stdin_text)
 
     if offset is not None:
         instruction = " ".join(rest).strip() or "explain"
-        return _explain(config, offset, instruction, console, debug=debug)
+        return _explain(config, offset, instruction, console, debug=debug, stdin_text=stdin_text)
 
-    # Feature 1: free-form question.
-    return ask_mod.ask(config, " ".join(rest).strip(), console)
+    # Feature 1: free-form question (possibly with piped stdin as input).
+    return ask_mod.ask(config, " ".join(rest).strip(), console, stdin_text=stdin_text)
 
 
-def _interactive(config, offset: int | None, initial_text: str, console: Console) -> int:
+def _interactive(config, offset: int | None, initial_text: str, console: Console,
+                 stdin_text: str | None) -> int:
     shell = detect_shell()
     blocks = None
     if offset is not None:
@@ -122,10 +140,12 @@ def _interactive(config, offset: int | None, initial_text: str, console: Console
             blocks = get_blocks(offset)
         except (NoSessionError, ValueError) as exc:
             console.print(f"[yellow]No command context:[/yellow] {exc}")
-    return chat_mod.chat(config, console, shell, blocks=blocks, initial_text=initial_text or None)
+    return chat_mod.chat(config, console, shell, blocks=blocks,
+                         initial_text=initial_text or None, piped_context=stdin_text)
 
 
-def _explain(config, offset: int, instruction: str, console: Console, *, debug: bool = False) -> int:
+def _explain(config, offset: int, instruction: str, console: Console, *,
+             debug: bool = False, stdin_text: str | None = None) -> int:
     try:
         blocks = get_blocks(offset)
     except (NoSessionError, ValueError) as exc:
@@ -134,7 +154,7 @@ def _explain(config, offset: int, instruction: str, console: Console, *, debug: 
     if debug:
         _print_debug_blocks(offset, blocks, console)
     shell = detect_shell()
-    return ask_mod.explain(config, blocks, instruction, console, shell)
+    return ask_mod.explain(config, blocks, instruction, console, shell, stdin_text=stdin_text)
 
 
 def _print_debug_blocks(offset: int, blocks, console: Console) -> None:

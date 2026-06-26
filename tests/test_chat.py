@@ -18,7 +18,8 @@ def _console():
 
 
 def _feed(console, monkeypatch, lines):
-    """Make console.input() yield `lines` then raise EOFError (like ^D)."""
+    """Make console.input() yield `lines` then raise EOFError (like ^D), and present
+    stdin as an interactive terminal so chat() reads via console.input."""
     it = iter(lines)
 
     def fake_input(prompt=""):
@@ -28,6 +29,7 @@ def _feed(console, monkeypatch, lines):
             raise EOFError
 
     monkeypatch.setattr(console, "input", fake_input)
+    monkeypatch.setattr(chat_mod.sys, "stdin", SimpleNamespace(isatty=lambda: True))
 
 
 def test_is_exit():

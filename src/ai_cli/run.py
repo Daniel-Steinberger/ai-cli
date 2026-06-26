@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 
 from rich.console import Console
 from rich.prompt import Confirm
@@ -59,8 +60,10 @@ def _confirm_and_get_argv(answer: str, shell: ShellInfo, console: Console) -> tu
     console.print()
     console.print("[bold]Suggested command:[/bold]")
     console.print(Syntax(command, shell.name if shell.name != "unknown" else "bash"))
-    if not console.is_terminal:
-        return None  # never auto-run when not interactive
+    # Need an interactive terminal on both ends to prompt: stdout for the prompt,
+    # stdin for the y/N answer (piped stdin, e.g. `… | ai "q"`, has no answer).
+    if not console.is_terminal or not sys.stdin.isatty():
+        return None
     try:
         if not Confirm.ask("Run it?", default=False, console=console):
             return None

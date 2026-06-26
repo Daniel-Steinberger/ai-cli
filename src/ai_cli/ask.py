@@ -8,7 +8,12 @@ from rich.markdown import Markdown
 
 from .client import ClientError, stream_messages
 from .config import Config
-from .prompts import ask_system_prompt, explain_system_prompt, explain_user_prompt
+from .prompts import (
+    append_stdin,
+    ask_system_prompt,
+    explain_system_prompt,
+    explain_user_prompt,
+)
 from .run import offer_to_run
 from .shell import ShellInfo, detect_shell
 
@@ -38,10 +43,11 @@ def _two_message(system: str, user: str) -> list[dict]:
     ]
 
 
-def ask(config: Config, question: str, console: Console) -> int:
+def ask(config: Config, question: str, console: Console, stdin_text: str | None = None) -> int:
     shell = detect_shell()
+    user = append_stdin(question, stdin_text)
     try:
-        answer = render_stream(config, _two_message(ask_system_prompt(shell), question), console)
+        answer = render_stream(config, _two_message(ask_system_prompt(shell), user), console)
     except ClientError as exc:
         console.print(f"[red]Error:[/red] {exc}")
         return 1
@@ -50,8 +56,9 @@ def ask(config: Config, question: str, console: Console) -> int:
 
 
 def explain(config: Config, blocks, instruction: str, console: Console,
-            shell: ShellInfo) -> int:
-    messages = _two_message(explain_system_prompt(shell), explain_user_prompt(blocks, instruction))
+            shell: ShellInfo, stdin_text: str | None = None) -> int:
+    user = append_stdin(explain_user_prompt(blocks, instruction), stdin_text)
+    messages = _two_message(explain_system_prompt(shell), user)
     try:
         answer = render_stream(config, messages, console)
     except ClientError as exc:

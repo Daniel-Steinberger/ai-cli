@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Piped stdin as context:** when input is piped into `ai` (stdin is not a TTY),
+  it is read and attached to the question/instruction — e.g.
+  `cat err.log | ai "why?"` or `… | jq -r .extract | ai "übersetze das"`. Works with
+  Feature 1, `-N` and `-i` (chat reconnects to `/dev/tty` for input). The run-it
+  prompt is skipped when stdin is piped (no interactive answer possible).
 - **Interactive chat mode** (`ai -i`): multi-turn conversation with readline line
   editing/history, exit via ^D or `exit`/`quit`/`bye`/`q`. Optional leading `-N`
   and/or text seed the chat with recent-command context. Suggested commands can be

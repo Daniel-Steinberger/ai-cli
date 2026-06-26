@@ -4,12 +4,20 @@ line-editing/history. No extra dependencies — readline is stdlib."""
 
 from __future__ import annotations
 
+import os
+import sys
+
 from rich.console import Console
 
 from .ask import render_stream
 from .client import ClientError
 from .config import Config, log_dir
-from .prompts import chat_context_message, chat_system_prompt, command_result_message
+from .prompts import (
+    chat_context_message,
+    chat_system_prompt,
+    command_result_message,
+    stdin_context_message,
+)
 from .run import offer_to_run_capture
 from .shell import ShellInfo
 
@@ -51,28 +59,61 @@ def _save_readline(readline):
         pass
 
 
+def _reopen_tty() -> bool:
+    """When stdin was piped (e.g. `cat x | ai -i`), reconnect fd 0 to the controlling
+    terminal so we can still read interactive input. Returns True on success."""
+    try:
+        fd = os.open("/dev/tty", os.O_RDONLY)
+    except OSError:
+        return False
+    try:
+        os.dup2(fd, 0)
+    finally:
+        os.close(fd)
+    try:
+        sys.stdin = os.fdopen(0, "r", closefd=False)
+    except OSError:
+        pass
+    return True
+
+
 def chat(config: Config, console: Console, shell: ShellInfo,
-         blocks=None, initial_text: str | None = None) -> int:
+         blocks=None, initial_text: str | None = None, piped_context: str | None = None) -> int:
     if not console.is_terminal:
         console.print("[red]Interactive mode (-i) requires a terminal.[/red]")
         return 1
 
-    readline = _setup_readline()
+    # If input was piped in, reconnect to the terminal so the chat can still read input.
+    input_ok = sys.stdin.isatty() or _reopen_tty()
+    if not input_ok and not initial_text:
+        console.print("[red]Interactive mode needs a terminal for input.[/red]")
+        return 1
+
+    readline = _setup_readline() if input_ok else None
 
     system = chat_system_prompt(shell)
     if blocks:
         system += chat_context_message(blocks)
+    if piped_context:
+        system += stdin_context_message(piped_context)
     messages: list[dict] = [{"role": "system", "content": system}]
 
     console.print(f"[dim]ai chat — model {config.model}. ^D or 'exit' to quit.[/dim]")
+    notes = []
     if blocks:
-        console.print(f"[dim]Context: the last {len(blocks)} command(s) are available.[/dim]")
+        notes.append(f"the last {len(blocks)} command(s)")
+    if piped_context:
+        notes.append("piped input")
+    if notes:
+        console.print(f"[dim]Context: {' and '.join(notes)} available.[/dim]")
 
     pending = initial_text
     while True:
         if pending is not None:
             line, pending = pending, None
             console.print(f"{_PROMPT}{line}", highlight=False)
+        elif not input_ok:
+            break  # seeded turn done; no terminal to keep reading from
         else:
             try:
                 line = console.input(_PROMPT)

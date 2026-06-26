@@ -88,6 +88,25 @@ def chat_context_message(blocks) -> str:
     )
 
 
+def append_stdin(text: str, stdin_text: str | None) -> str:
+    """Combine a question/instruction with text piped in via stdin.
+
+    `echo foo | ai "translate"` -> the piped text is attached as input below the
+    instruction. With no instruction, the piped text becomes the prompt itself.
+    """
+    if not stdin_text:
+        return text
+    block = f"Input (piped via stdin):\n```\n{stdin_text}\n```"
+    if text:
+        return f"{text}\n\n{block}"
+    return block
+
+
+def stdin_context_message(stdin_text: str) -> str:
+    """Context section appended to the chat system prompt for piped input."""
+    return f"\nThe user piped this input into the chat:\n```\n{stdin_text}\n```\n"
+
+
 def command_result_message(cmd: str, output: str, exit_code: int | None) -> str:
     """A user-role message reporting the result of a command the assistant suggested."""
     exit_str = "unknown" if exit_code is None else str(exit_code)
