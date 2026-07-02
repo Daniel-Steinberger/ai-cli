@@ -31,6 +31,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `uv tool upgrade` only works for git/index installs.
 
 ### Fixed
+- Recorder no longer lingers/busy-loops as an orphan after a terminal restart.
+  The fish integration `exec`s the interactive shell inside `script(1)`. When the
+  owning terminal process (e.g. `ptyxis-agent`) died *without* closing the pty —
+  a terminal/compositor restart or crash — `script` was reparented to the user's
+  init manager and never exited, busy-looping on the now-unreadable terminal
+  (steady system load, ~100% of one core each). On Linux the recorder is now
+  launched via `setpriv --pdeathsig HUP script …`, so it is signalled to exit the
+  moment its parent terminal goes away. A clean `Ctrl-D` is unaffected (the parent
+  stays alive; only the individual shell exits). Falls back to bare `script` if
+  `setpriv` is unavailable. **Re-run `ai install` and restart your shell** to pick
+  this up in existing setups.
 - Options (`--debug`, `--model`) are now recognised anywhere in the arguments,
   including after the `-N` offset (e.g. `ai -3 --debug explain`). Previously only
   leading options were parsed, so `--debug` after `-N` leaked into the instruction.

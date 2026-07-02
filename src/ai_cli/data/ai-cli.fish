@@ -34,8 +34,20 @@ if status is-interactive
         set -gx AI_CLI_SESSION "$dir/"(date '+%Y%m%d-%H%M%S')"-$fish_pid.typescript"
         # -f / -F flush after every write so `ai -N` sees the latest command
         # immediately (otherwise script block-buffers and recent output lags).
+        #
+        # On Linux, wrap script in `setpriv --pdeathsig HUP` so the recorder is
+        # signalled to exit when its parent terminal process dies WITHOUT closing
+        # the pty — e.g. a ptyxis-agent / terminal-emulator restart, crash, or a
+        # compositor restart. In that case script is reparented to the user's
+        # init manager and would otherwise linger forever, busy-looping on the
+        # now-unreadable terminal (steady load, ~100% of one core, high sys time).
+        # A clean Ctrl-D is unaffected: the parent stays alive and only this one
+        # child exits normally. setpriv ships with util-linux alongside script;
+        # fall back to bare script if it is somehow missing.
         if test (uname) = Darwin
             exec script -q -F "$AI_CLI_SESSION" fish
+        else if type -q setpriv
+            exec setpriv --pdeathsig HUP script -q -f -e -c fish "$AI_CLI_SESSION"
         else
             exec script -q -f -e -c fish "$AI_CLI_SESSION"
         end
