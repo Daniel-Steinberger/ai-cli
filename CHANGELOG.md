@@ -5,6 +5,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- **Runaway session recordings.** The fish integration now cleans up on every
+  real terminal launch: it *reaps* orphaned `script(1)` recorders (parent
+  reparented to pid 1 / `systemd` — the busy-loop case that `setpriv --pdeathsig`
+  cannot catch when the terminal's pty dies but the parent process survives) and
+  deletes their runaway typescripts, and it *prunes* leftover recordings with no
+  live writer that exceed 500 MiB or are older than 14 days. Files a live
+  recorder still holds open are protected. Previously such orphans could grow to
+  hundreds of GB and there was no rotation of old sessions.
+- **Interactive chat backspace/cursor math** (`ai -i`): the `you ›` prompt was
+  rendered via Rich's `console.input`, which prints the prompt and then calls
+  `input("")`, leaving readline blind to the prompt width. Cursor calculations
+  (backspace, line wrapping) were off by the prompt width. The prompt is now
+  passed to the builtin `input()` with its escape sequences wrapped in
+  `\001..\002` so readline counts the on-screen width correctly.
+
 ### Added
 - **Piped stdin as context:** when input is piped into `ai` (stdin is not a TTY),
   it is read and attached to the question/instruction — e.g.

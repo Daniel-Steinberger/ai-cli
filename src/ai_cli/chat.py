@@ -25,6 +25,15 @@ EXIT_WORDS = {"exit", "quit", "bye", "q", ":q", "\\q"}
 
 _PROMPT = "[bold green]you[/bold green] › "
 
+# ANSI variant for the builtin input() when readline is active. Rich's
+# console.input() prints the prompt and then calls input("") with an empty
+# string, so readline stays blind to the prompt's on-screen width and its
+# cursor math (backspace, line wrapping) is off by the prompt width. Passing
+# the prompt to input() directly fixes that, but the non-printing escape
+# sequences must be wrapped in \001..\002 (RL_PROMPT_{START,END}_IGNORE) so
+# readline excludes them from the width. Visible width stays "you › " (6).
+_PROMPT_READLINE = "\001\033[1;32m\002you\001\033[0m\002 › "
+
 
 def is_exit(text: str) -> bool:
     return text.strip().lower() in EXIT_WORDS
@@ -116,7 +125,13 @@ def chat(config: Config, console: Console, shell: ShellInfo,
             break  # seeded turn done; no terminal to keep reading from
         else:
             try:
-                line = console.input(_PROMPT)
+                # Use builtin input() with a readline-aware prompt so cursor
+                # math (backspace/wrapping) accounts for the prompt width.
+                # Fall back to Rich's console.input() when readline is absent.
+                if readline is not None:
+                    line = input(_PROMPT_READLINE)
+                else:
+                    line = console.input(_PROMPT)
             except EOFError:
                 console.print()
                 break
