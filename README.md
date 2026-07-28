@@ -12,6 +12,13 @@ features built for the terminal:
    The answer is streamed as Markdown. If it suggests a command, you're asked
    whether to run it (never automatically).
 
+   `ai` **starts an interactive chat by default** (see 3.), with your question as
+   the first turn. Use `-p`/`--print` for a single answer that just prints and exits:
+
+   ```
+   ai -p how to list all files by size
+   ```
+
 2. **Explain the previous command** — read a recent command *and its output* and
    interpret a follow-up instruction in that context:
 
@@ -26,19 +33,48 @@ features built for the terminal:
    fail?"`, …) is interpreted against those commands, their output, and exit codes.
    Add `--debug` to print exactly what was used as context.
 
-3. **Interactive chat** — `ai -i` opens a multi-turn chat:
+   With `-p`, `-N` is the one-shot explanation:
 
    ```
-   ai -i                     # plain chat
-   ai -i -3                  # chat seeded with the last 3 commands as context
-   ai -i -1 "why?"           # context + an opening question
+   ai -p -1 explain
+   ```
+
+3. **Interactive chat** — the **default** mode, so plain `ai` opens a multi-turn chat:
+
+   ```
+   ai                        # plain chat
+   ai wie geht das?          # chat, seeded with the question
+   ai -3                     # chat seeded with the last 3 commands as context
+   ai -1 "why?"              # context + an opening question
    ```
 
    Quit with **^D** or `exit` / `quit` / `bye` / `q`. When the assistant suggests a
    command you're asked to run it (y/N); its output is **fed back into the chat** so
    the assistant can react to the real result. Commands run on the real terminal, so
-   `sudo` can prompt for a password (hidden). Line editing and history come from
-   readline.
+   `sudo` can prompt for a password (hidden). Line editing, history and the
+   completion popup come from `prompt_toolkit`.
+
+   `-i`/`--interactive` still works but is a no-op now that chat is the default.
+   Without a usable terminal (output redirected, non-interactive script) `ai` falls
+   back to printing a single answer automatically.
+
+### Slash commands
+
+Inside the chat, input starting with `/` is a command. Typing `/` opens a
+completion popup listing every command with a short description; **Tab** completes.
+
+| command           | description                                          |
+|-------------------|------------------------------------------------------|
+| `/clear`          | Clear the conversation history and the screen        |
+| `/context [-N]`   | Load the last N commands + output as context         |
+| `/model [name]`   | Show or switch the model for this session            |
+| `/config`         | Show the effective configuration                     |
+| `/help`           | List the available commands                          |
+| `/exit`           | End the chat                                         |
+
+`/clear` drops the dialogue only — context loaded via `-N`, a pipe or `/context`
+stays, since it is part of the system prompt. Input starting with `/` that is not a
+known command (e.g. `/tmp/foo — what is this?`) is sent to the model as usual.
 
 **Piping:** anything piped into `ai` is added as input/context, so it composes with
 other tools:
@@ -49,8 +85,9 @@ curl -s https://en.wikipedia.org/api/rest_v1/page/summary/Albert_Einstein \
   | jq -r .extract | ai "übersetze das auf deutsch"
 ```
 
-Piped input works with `-N` and `-i` too. When stdin is piped, the run-it prompt is
-skipped (there's no interactive input to answer it).
+Piped input works with `-N` and in the chat too (the chat reconnects to `/dev/tty`
+for your input). With `-p`, when stdin is piped, the run-it prompt is skipped
+(there's no interactive input to answer it).
 
 The tool is **shell-aware** (fish/zsh/bash): the detected shell and OS are passed
 to the model so answers and suggested commands match your environment.
@@ -141,16 +178,19 @@ ai init fish | source
 
 | command                 | description                                  |
 |-------------------------|----------------------------------------------|
-| `ai <question...>`      | Ask anything (Feature 1)                     |
-| `<cmd> \| ai <q...>`     | Pipe input as context for the question       |
-| `ai -N <instruction>`   | Explain the last N commands (Feature 2)      |
-| `ai -i [-N] [text]`     | Interactive chat; optional `-N`/text seed context |
+| `ai`                    | Interactive chat (default mode)              |
+| `ai <question...>`      | Chat, seeded with the question               |
+| `ai -N [text]`          | Chat with the last N commands as context     |
+| `<cmd> \| ai [q...]`     | Pipe input as context for the question       |
+| `ai -p <question...>`   | Print one answer and exit (Feature 1)        |
+| `ai -p -N [text]`       | Print an explanation of the last N commands (Feature 2) |
 | `ai install [fish]`     | Install shell integration                    |
 | `ai init [fish]`        | Print integration snippet                    |
 | `ai config`             | Show effective configuration                 |
-| `-i`, `--interactive`   | Start an interactive chat                    |
+| `-p`, `--print`         | Print a single answer instead of starting a chat |
+| `-i`, `--interactive`   | No-op (chat is the default); kept for compatibility |
 | `--model <name>`        | Override the model for one call              |
-| `--debug`               | With `-N`: print the command + output used as context, before the answer |
+| `--debug`               | With `-p -N`: print the command + output used as context, before the answer |
 
 ## Platform
 

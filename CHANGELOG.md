@@ -5,6 +5,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+- **Interactive chat is now the default** (like `claude`). Plain `ai` opens the
+  chat; `ai <frage>` opens it with the question as the first turn; `ai -N [text]`
+  opens it with the last N commands as context. The new **`-p`/`--print`** flag
+  restores the old one-shot behaviour (`ai -p <frage>`, `ai -p -N [text]`).
+  `-i`/`--interactive` is kept as a no-op alias. Without a usable terminal
+  (redirected output, non-interactive script) `ai` falls back to print mode
+  automatically instead of failing.
+
+### Added
+- **Slash commands in the chat** with a live **autocompletion popup**: typing `/`
+  opens a menu listing every command with a short description (omnibar style),
+  Tab completes. Commands: `/clear` (drop the conversation and clear the screen;
+  loaded context is kept, as it lives in the system prompt), `/context [-N]`
+  (load the last N commands + output into the running session), `/model [name]`
+  (show or switch the model), `/config`, `/help`, `/exit`. Input starting with `/`
+  that is not a known command (e.g. `/tmp/foo — was ist das?`) still goes to the
+  model.
+- New modules `session.py` (`ChatSession`: system prompt, messages, context) and
+  `commands.py` (command registry + dispatch + completions). New dependency
+  `prompt_toolkit` (drives the chat prompt and the popup); stdlib `readline`
+  remains the fallback when it is unavailable, minus the popup.
+
 ### Fixed
 - **Runaway session recordings.** The fish integration now cleans up on every
   real terminal launch: it *reaps* orphaned `script(1)` recorders (parent

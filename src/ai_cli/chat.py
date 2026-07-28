@@ -1,6 +1,13 @@
-"""Interactive chat mode (`ai -i`). Multi-turn conversation with optional command
-context, command execution (with the output fed back into the chat), and readline
-line-editing/history. No extra dependencies — readline is stdlib."""
+"""Interactive chat mode — the default when `ai` is invoked without `-p`.
+
+Multi-turn conversation with optional command context, slash commands (see
+`commands.py`) with an autocompletion popup, and command execution whose output is
+fed back into the conversation.
+
+Line editing comes from `prompt_toolkit` (needed for the completion menu); if it is
+unavailable we fall back to stdlib `readline`, which gives history and editing but
+no popup.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +16,7 @@ import sys
 
 from rich.console import Console
 
+from . import commands
 from .ask import render_stream
 from .client import ClientError
 from .config import Config, log_dir
@@ -19,6 +27,7 @@ from .prompts import (
     stdin_context_message,
 )
 from .run import offer_to_run_capture
+from .session import ChatSession
 from .shell import ShellInfo
 
 EXIT_WORDS = {"exit", "quit", "bye", "q", ":q", "\\q"}
@@ -39,37 +48,127 @@ def is_exit(text: str) -> bool:
     return text.strip().lower() in EXIT_WORDS
 
 
-def _history_file():
-    return log_dir().parent / "chat_history"
+def _history_file(name: str = "chat_history"):
+    return log_dir().parent / name
 
 
-def _setup_readline():
+# --------------------------------------------------------------------------- input
+
+
+class _ReadlineReader:
+    """Fallback line reader: stdlib readline (no completion popup)."""
+
+    def __init__(self, console: Console):
+        self.console = console
+        self.readline = self._setup()
+
+    def _setup(self):
+        try:
+            import readline
+        except ImportError:
+            return None
+        hist = _history_file()
+        try:
+            hist.parent.mkdir(parents=True, exist_ok=True)
+            if hist.exists():
+                readline.read_history_file(str(hist))
+        except OSError:
+            pass
+        return readline
+
+    def read(self) -> str:
+        if self.readline is not None:
+            return input(_PROMPT_READLINE)
+        return self.console.input(_PROMPT)
+
+    def close(self) -> None:
+        if self.readline is None:
+            return
+        try:
+            self.readline.set_history_length(1000)
+            self.readline.write_history_file(str(_history_file()))
+        except OSError:
+            pass
+
+
+def _slash_completer():
+    """Completer offering the slash commands with their description as meta text.
+
+    Built lazily because the base class comes from prompt_toolkit.
+    """
+    from prompt_toolkit.completion import Completer, Completion
+
+    class _SlashCompleter(Completer):
+        def get_completions(self, document, complete_event):
+            word = document.text_before_cursor
+            # Only the first token, and only for `/…` — otherwise stay silent so
+            # normal questions are never interrupted by a popup.
+            if not word.startswith("/") or " " in word:
+                return
+            for cmd in commands.completions(word):
+                yield Completion(
+                    cmd.name,
+                    start_position=-len(word),
+                    display=cmd.usage,
+                    display_meta=cmd.description,
+                )
+
+    return _SlashCompleter()
+
+
+class _PromptToolkitReader:
+    """Line reader with a live completion popup for slash commands."""
+
+    def __init__(self, *, input=None, output=None):
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.formatted_text import FormattedText
+        from prompt_toolkit.history import FileHistory
+        from prompt_toolkit.shortcuts import CompleteStyle
+        from prompt_toolkit.styles import Style
+
+        # prompt_toolkit's FileHistory format differs from readline's, hence its own file.
+        hist_path = _history_file("chat_history.ptk")
+        try:
+            hist_path.parent.mkdir(parents=True, exist_ok=True)
+            history = FileHistory(str(hist_path))
+        except OSError:
+            history = None
+
+        self._prompt = FormattedText([("class:you", "you"), ("", " › ")])
+        self._session = PromptSession(
+            history=history,
+            completer=_slash_completer(),
+            complete_while_typing=True,
+            complete_style=CompleteStyle.COLUMN,
+            style=Style.from_dict({
+                "you": "bold ansigreen",
+                "completion-menu.completion": "bg:ansiblack ansiwhite",
+                "completion-menu.completion.current": "bg:ansiblue ansiwhite bold",
+                "completion-menu.meta.completion": "bg:ansiblack ansibrightblack",
+                "completion-menu.meta.completion.current": "bg:ansiblue ansiwhite",
+            }),
+            **({"input": input} if input is not None else {}),
+            **({"output": output} if output is not None else {}),
+        )
+
+    def read(self) -> str:
+        return self._session.prompt(self._prompt)
+
+    def close(self) -> None:
+        pass  # FileHistory persists on every accepted line
+
+
+def _build_input(console: Console):
+    """Return a line reader with .read() / .close(), preferring prompt_toolkit."""
     try:
-        import readline
-    except ImportError:
-        return None
-    hist = _history_file()
-    try:
-        hist.parent.mkdir(parents=True, exist_ok=True)
-        if hist.exists():
-            readline.read_history_file(str(hist))
-    except OSError:
-        pass
-    return readline
-
-
-def _save_readline(readline):
-    if readline is None:
-        return
-    try:
-        readline.set_history_length(1000)
-        readline.write_history_file(str(_history_file()))
-    except OSError:
-        pass
+        return _PromptToolkitReader()
+    except Exception:
+        # ImportError, or a terminal prompt_toolkit cannot drive.
+        return _ReadlineReader(console)
 
 
 def _reopen_tty() -> bool:
-    """When stdin was piped (e.g. `cat x | ai -i`), reconnect fd 0 to the controlling
+    """When stdin was piped (e.g. `cat x | ai`), reconnect fd 0 to the controlling
     terminal so we can still read interactive input. Returns True on success."""
     try:
         fd = os.open("/dev/tty", os.O_RDONLY)
@@ -86,10 +185,13 @@ def _reopen_tty() -> bool:
     return True
 
 
+# ---------------------------------------------------------------------------- loop
+
+
 def chat(config: Config, console: Console, shell: ShellInfo,
          blocks=None, initial_text: str | None = None, piped_context: str | None = None) -> int:
     if not console.is_terminal:
-        console.print("[red]Interactive mode (-i) requires a terminal.[/red]")
+        console.print("[red]Interactive mode requires a terminal (use -p to print).[/red]")
         return 1
 
     # If input was piped in, reconnect to the terminal so the chat can still read input.
@@ -98,40 +200,31 @@ def chat(config: Config, console: Console, shell: ShellInfo,
         console.print("[red]Interactive mode needs a terminal for input.[/red]")
         return 1
 
-    readline = _setup_readline() if input_ok else None
-
-    system = chat_system_prompt(shell)
+    session = ChatSession(config=config, console=console, shell=shell,
+                          system=chat_system_prompt(shell))
     if blocks:
-        system += chat_context_message(blocks)
+        session.add_context(chat_context_message(blocks), f"the last {len(blocks)} command(s)")
     if piped_context:
-        system += stdin_context_message(piped_context)
-    messages: list[dict] = [{"role": "system", "content": system}]
+        session.add_context(stdin_context_message(piped_context), "piped input")
 
-    console.print(f"[dim]ai chat — model {config.model}. ^D or 'exit' to quit.[/dim]")
-    notes = []
-    if blocks:
-        notes.append(f"the last {len(blocks)} command(s)")
-    if piped_context:
-        notes.append("piped input")
-    if notes:
-        console.print(f"[dim]Context: {' and '.join(notes)} available.[/dim]")
+    console.print(
+        f"[dim]ai chat — model {config.model}. /help for commands, ^D or 'exit' to quit.[/dim]"
+    )
+    if session.notes:
+        console.print(f"[dim]Context: {' and '.join(session.notes)} available.[/dim]")
+
+    reader = _build_input(console) if input_ok else None
 
     pending = initial_text
     while True:
         if pending is not None:
             line, pending = pending, None
             console.print(f"{_PROMPT}{line}", highlight=False)
-        elif not input_ok:
+        elif reader is None:
             break  # seeded turn done; no terminal to keep reading from
         else:
             try:
-                # Use builtin input() with a readline-aware prompt so cursor
-                # math (backspace/wrapping) accounts for the prompt width.
-                # Fall back to Rich's console.input() when readline is absent.
-                if readline is not None:
-                    line = input(_PROMPT_READLINE)
-                else:
-                    line = console.input(_PROMPT)
+                line = reader.read()
             except EOFError:
                 console.print()
                 break
@@ -144,30 +237,35 @@ def chat(config: Config, console: Console, shell: ShellInfo,
             continue
         if is_exit(text):
             break
+        if commands.split(text) is not None:
+            if not commands.dispatch(session, text):
+                break
+            continue
 
         try:
-            _run_turn(config, messages, console, shell, text)
+            _run_turn(session, text)
         except ClientError as exc:
             console.print(f"[red]Error:[/red] {exc}")
             # drop the dangling user turn so the history stays consistent
-            if messages and messages[-1]["role"] == "user":
-                messages.pop()
+            if session.messages and session.messages[-1]["role"] == "user":
+                session.messages.pop()
 
     console.print("[dim]bye[/dim]")
-    _save_readline(readline)
+    if reader is not None:
+        reader.close()
     return 0
 
 
-def _run_turn(config: Config, messages: list[dict], console: Console,
-              shell: ShellInfo, user_text: str) -> None:
+def _run_turn(session: ChatSession, user_text: str) -> None:
     """One user turn: stream a reply, then keep running suggested commands and feeding
     their output back as long as the user confirms each one."""
+    console, messages = session.console, session.messages
     messages.append({"role": "user", "content": user_text})
     while True:
-        answer = render_stream(config, messages, console)
+        answer = render_stream(session.config, messages, console)
         messages.append({"role": "assistant", "content": answer})
 
-        result = offer_to_run_capture(answer, shell, console)
+        result = offer_to_run_capture(answer, session.shell, console)
         if result is None:
             return
         cmd, output, exit_code = result

@@ -10,7 +10,11 @@ from ai_cli.prompts import command_result_message, format_blocks
 from ai_cli.shell import ShellInfo
 
 SHELL = ShellInfo(name="bash", version="5", os="Linux")
-CFG = SimpleNamespace(model="test-model")
+
+
+def _cfg():
+    return SimpleNamespace(model="test-model", api_key="k",
+                           base_url="http://x/v1", sources={"model": "default"})
 
 
 def _console():
@@ -18,17 +22,21 @@ def _console():
 
 
 def _feed(console, monkeypatch, lines):
-    """Make console.input() yield `lines` then raise EOFError (like ^D), and present
-    stdin as an interactive terminal so chat() reads via console.input."""
+    """Make the chat's line reader yield `lines` and then raise EOFError (like ^D),
+    and present stdin as an interactive terminal."""
     it = iter(lines)
 
-    def fake_input(prompt=""):
-        try:
-            return next(it)
-        except StopIteration:
-            raise EOFError
+    class _Reader:
+        def read(self):
+            try:
+                return next(it)
+            except StopIteration:
+                raise EOFError
 
-    monkeypatch.setattr(console, "input", fake_input)
+        def close(self):
+            pass
+
+    monkeypatch.setattr(chat_mod, "_build_input", lambda con: _Reader())
     monkeypatch.setattr(chat_mod.sys, "stdin", SimpleNamespace(isatty=lambda: True))
 
 
@@ -44,12 +52,11 @@ def test_chat_basic_loop(monkeypatch):
     _feed(console, monkeypatch, ["hallo", "exit"])
 
     calls = []
-    monkeypatch.setattr(chat_mod, "_setup_readline", lambda: None)
     monkeypatch.setattr(chat_mod, "render_stream",
                         lambda cfg, messages, con: calls.append([m["role"] for m in messages]) or "hi")
     monkeypatch.setattr(chat_mod, "offer_to_run_capture", lambda *a, **k: None)
 
-    rc = chat_mod.chat(CFG, console, SHELL)
+    rc = chat_mod.chat(_cfg(), console, SHELL)
     assert rc == 0
     # "hallo" -> one model call; "exit" quits without a call.
     assert len(calls) == 1
@@ -62,7 +69,6 @@ def test_chat_feeds_command_output_back(monkeypatch):
 
     rendered = []
     answers = iter(["run ```bash\nls\n```", "those are your files"])
-    monkeypatch.setattr(chat_mod, "_setup_readline", lambda: None)
     monkeypatch.setattr(chat_mod, "render_stream",
                         lambda cfg, messages, con: rendered.append([dict(m) for m in messages]) or next(answers))
 
@@ -70,7 +76,7 @@ def test_chat_feeds_command_output_back(monkeypatch):
     monkeypatch.setattr(chat_mod, "offer_to_run_capture",
                         lambda answer, shell, con: next(captures, None))
 
-    rc = chat_mod.chat(CFG, console, SHELL)
+    rc = chat_mod.chat(_cfg(), console, SHELL)
     assert rc == 0
     # First answer suggests a command -> it runs -> output fed back -> second render.
     assert len(rendered) == 2
@@ -83,13 +89,70 @@ def test_chat_initial_text_is_first_turn(monkeypatch):
     _feed(console, monkeypatch, [])  # immediate EOF after the seeded turn
 
     calls = []
-    monkeypatch.setattr(chat_mod, "_setup_readline", lambda: None)
     monkeypatch.setattr(chat_mod, "render_stream",
                         lambda cfg, messages, con: calls.append(messages[-1]["content"]) or "ok")
     monkeypatch.setattr(chat_mod, "offer_to_run_capture", lambda *a, **k: None)
 
-    chat_mod.chat(CFG, console, SHELL, initial_text="warum?")
+    chat_mod.chat(_cfg(), console, SHELL, initial_text="warum?")
     assert calls == ["warum?"]
+
+
+def test_slash_clear_drops_history_but_not_context(monkeypatch):
+    console = _console()
+    _feed(console, monkeypatch, ["hallo", "/clear", "und jetzt?"])
+
+    rendered = []
+    monkeypatch.setattr(chat_mod, "render_stream",
+                        lambda cfg, messages, con: rendered.append([dict(m) for m in messages]) or "ok")
+    monkeypatch.setattr(chat_mod, "offer_to_run_capture", lambda *a, **k: None)
+
+    blocks = [CommandBlock(cmd="ls -l", output="total 0", exit_code=0)]
+    chat_mod.chat(_cfg(), console, SHELL, blocks=blocks)
+
+    # Second turn starts from scratch again: system + the new user message only …
+    assert [m["role"] for m in rendered[1]] == ["system", "user"]
+    assert rendered[1][-1]["content"] == "und jetzt?"
+    # … but the command context is still part of the system prompt.
+    assert "ls -l" in rendered[1][0]["content"]
+
+
+def test_slash_exit_ends_the_chat(monkeypatch):
+    console = _console()
+    _feed(console, monkeypatch, ["/exit", "never asked"])
+
+    calls = []
+    monkeypatch.setattr(chat_mod, "render_stream",
+                        lambda cfg, messages, con: calls.append(1) or "ok")
+    monkeypatch.setattr(chat_mod, "offer_to_run_capture", lambda *a, **k: None)
+
+    assert chat_mod.chat(_cfg(), console, SHELL) == 0
+    assert calls == []
+
+
+def test_unknown_slash_input_goes_to_the_model(monkeypatch):
+    console = _console()
+    _feed(console, monkeypatch, ["/tmp/foo — was ist das?"])
+
+    calls = []
+    monkeypatch.setattr(chat_mod, "render_stream",
+                        lambda cfg, messages, con: calls.append(messages[-1]["content"]) or "ok")
+    monkeypatch.setattr(chat_mod, "offer_to_run_capture", lambda *a, **k: None)
+
+    chat_mod.chat(_cfg(), console, SHELL)
+    assert calls == ["/tmp/foo — was ist das?"]
+
+
+def test_slash_model_switches_model(monkeypatch):
+    console = _console()
+    _feed(console, monkeypatch, ["/model gpt-neu", "frage"])
+
+    used = []
+    monkeypatch.setattr(chat_mod, "render_stream",
+                        lambda cfg, messages, con: used.append(cfg.model) or "ok")
+    monkeypatch.setattr(chat_mod, "offer_to_run_capture", lambda *a, **k: None)
+
+    chat_mod.chat(_cfg(), console, SHELL)
+    assert used == ["gpt-neu"]
 
 
 def test_format_blocks_and_result_message():
