@@ -57,7 +57,8 @@ def _cmd_help(session: ChatSession, args: str) -> bool:
         table.add_row(escape(cmd.usage), cmd.description)
     session.console.print(table)
     session.console.print(
-        "[dim]Tab completes commands. ^D or 'exit' quits. Anything else goes to the model.[/dim]",
+        "[dim]Tab completes commands and @paths. Reference files or directories with "
+        "@path — their content is attached. ^D or 'exit' quits.[/dim]",
         highlight=False,
     )
     return True

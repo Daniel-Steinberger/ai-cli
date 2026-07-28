@@ -15,6 +15,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   automatically instead of failing.
 
 ### Added
+- **`@path` references.** `@datei.py` / `@verzeichnis` in a question attaches that
+  file's content (or the directory listing) as context — in the chat and with `-p`
+  / `-p -N`. Paths are completed in the popup (`file`/`directory` as meta text,
+  directories get a `/` so the next segment completes right away). `@` only counts
+  at the start of a token, so `daniel@dvs.ag` stays an email address; quoting
+  (`@"my file.txt"`) covers spaces, `~` is expanded, and trailing sentence
+  punctuation (`@datei.py?`) is not part of the path. Limits: 100 KiB per file
+  (truncated with a note), 200 directory entries, 10 references per message;
+  binary files are reported, not inlined. A status line shows exactly what was
+  attached — or why it was not (`not found`, `binary`, …).
 - **Slash commands in the chat** with a live **autocompletion popup**: typing `/`
   opens a menu listing every command with a short description (omnibar style),
   Tab completes. Commands: `/clear` (drop the conversation and clear the screen;

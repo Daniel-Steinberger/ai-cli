@@ -102,6 +102,11 @@ def append_stdin(text: str, stdin_text: str | None) -> str:
     return block
 
 
+def references_message(block: str) -> str:
+    """Context section for files/directories the user referenced with `@path`."""
+    return f"\n\nThe user referenced these with `@`:\n\n{block}"
+
+
 def stdin_context_message(stdin_text: str) -> str:
     """Context section appended to the chat system prompt for piped input."""
     return f"\nThe user piped this input into the chat:\n```\n{stdin_text}\n```\n"

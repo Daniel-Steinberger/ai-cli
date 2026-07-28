@@ -155,6 +155,23 @@ def test_slash_model_switches_model(monkeypatch):
     assert used == ["gpt-neu"]
 
 
+def test_at_reference_content_is_attached_to_the_turn(monkeypatch, tmp_path):
+    (tmp_path / "hello.py").write_text("print('hi')\n")
+    monkeypatch.chdir(tmp_path)
+    console = _console()
+    _feed(console, monkeypatch, ["was macht @hello.py?"])
+
+    sent = []
+    monkeypatch.setattr(chat_mod, "render_stream",
+                        lambda cfg, messages, con: sent.append(messages[-1]["content"]) or "ok")
+    monkeypatch.setattr(chat_mod, "offer_to_run_capture", lambda *a, **k: None)
+
+    chat_mod.chat(_cfg(), console, SHELL)
+    assert sent[0].startswith("was macht @hello.py?")
+    assert "print('hi')" in sent[0]
+    assert "File `hello.py`" in sent[0]
+
+
 def test_format_blocks_and_result_message():
     blocks = [CommandBlock(cmd="ls -l", output="total 0", exit_code=0)]
     fb = format_blocks(blocks)

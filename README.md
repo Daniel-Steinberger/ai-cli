@@ -72,6 +72,32 @@ completion popup listing every command with a short description; **Tab** complet
 | `/help`           | List the available commands                          |
 | `/exit`           | End the chat                                         |
 
+### Referencing files with `@`
+
+`@path` pulls a file or directory into the question. Typing `@` completes paths in
+the popup (directories get a `/` so the next segment completes immediately):
+
+```
+you › was macht @src/ai_cli/session.py?
+attached: @src/ai_cli/session.py (1.4 KiB)
+
+you › vergleiche @altes.py mit @neues.py
+you › was liegt in @src/ai_cli/ ?
+```
+
+The file's content (or the directory listing) is attached to that message, and a
+status line states exactly what was sent. Works in the chat and with `-p`:
+
+```
+ai -p "erklär mir @src/ai_cli/cli.py"
+```
+
+Details: `@` only counts at the start of a token, so `daniel@dvs.ag` stays an email
+address. `~` is expanded, `@"my file.txt"` covers spaces, and trailing sentence
+punctuation (`@datei.py?`) is not treated as part of the path. Files are truncated
+at 100 KiB, directory listings at 200 entries, and at most 10 references per
+message are loaded; binary files and unknown paths are reported instead of sent.
+
 `/clear` drops the dialogue only — context loaded via `-N`, a pipe or `/context`
 stays, since it is part of the system prompt. Input starting with `/` that is not a
 known command (e.g. `/tmp/foo — what is this?`) is sent to the model as usual.

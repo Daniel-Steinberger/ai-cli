@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 from rich.console import Console
 
-from . import commands
+from . import commands, references
 from .ask import render_stream
 from .client import ClientError
 from .config import Config, log_dir
@@ -91,29 +92,59 @@ class _ReadlineReader:
             pass
 
 
-def _slash_completer():
-    """Completer offering the slash commands with their description as meta text.
+def _current_token(text: str) -> str:
+    """The token the cursor sits in ("" right after whitespace)."""
+    if not text or text[-1].isspace():
+        return ""
+    return text.rsplit(maxsplit=1)[-1]
 
-    Built lazily because the base class comes from prompt_toolkit.
+
+def _chat_completer():
+    """Completer for the chat prompt: slash commands and `@path` references.
+
+    Built lazily because the base classes come from prompt_toolkit.
     """
-    from prompt_toolkit.completion import Completer, Completion
+    from prompt_toolkit.completion import Completer, Completion, PathCompleter
+    from prompt_toolkit.document import Document
 
-    class _SlashCompleter(Completer):
+    paths = PathCompleter(expanduser=True)
+
+    class _ChatCompleter(Completer):
         def get_completions(self, document, complete_event):
-            word = document.text_before_cursor
-            # Only the first token, and only for `/…` — otherwise stay silent so
-            # normal questions are never interrupted by a popup.
-            if not word.startswith("/") or " " in word:
-                return
-            for cmd in commands.completions(word):
-                yield Completion(
-                    cmd.name,
-                    start_position=-len(word),
-                    display=cmd.usage,
-                    display_meta=cmd.description,
-                )
+            before = document.text_before_cursor
+            token = _current_token(before)
 
-    return _SlashCompleter()
+            # Slash commands: only as the very first token of the line.
+            if token.startswith("/") and token == before:
+                for cmd in commands.completions(token):
+                    yield Completion(
+                        cmd.name,
+                        start_position=-len(token),
+                        display=cmd.usage,
+                        display_meta=cmd.description,
+                    )
+                return
+
+            # `@path` references: anywhere in the line. Delegate to PathCompleter on
+            # the part after the `@`; start_position is relative to the cursor, which
+            # sits at the end of both documents, so it carries over unchanged.
+            if token.startswith("@"):
+                fragment = token[1:]
+                sub = Document(fragment, len(fragment))
+                for completion in paths.get_completions(sub, complete_event):
+                    candidate = fragment[:len(fragment) + completion.start_position] \
+                        + completion.text
+                    is_dir = Path(candidate).expanduser().is_dir()
+                    yield Completion(
+                        # Append the separator for directories so the next path
+                        # segment can be completed right away.
+                        completion.text + ("/" if is_dir else ""),
+                        start_position=completion.start_position,
+                        display=completion.display,
+                        display_meta="directory" if is_dir else "file",
+                    )
+
+    return _ChatCompleter()
 
 
 class _PromptToolkitReader:
@@ -137,7 +168,7 @@ class _PromptToolkitReader:
         self._prompt = FormattedText([("class:you", "you"), ("", " › ")])
         self._session = PromptSession(
             history=history,
-            completer=_slash_completer(),
+            completer=_chat_completer(),
             complete_while_typing=True,
             complete_style=CompleteStyle.COLUMN,
             style=Style.from_dict({
@@ -260,7 +291,7 @@ def _run_turn(session: ChatSession, user_text: str) -> None:
     """One user turn: stream a reply, then keep running suggested commands and feeding
     their output back as long as the user confirms each one."""
     console, messages = session.console, session.messages
-    messages.append({"role": "user", "content": user_text})
+    messages.append({"role": "user", "content": references.expand(user_text, console)})
     while True:
         answer = render_stream(session.config, messages, console)
         messages.append({"role": "assistant", "content": answer})
