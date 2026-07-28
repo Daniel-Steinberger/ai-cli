@@ -11,6 +11,7 @@ Usage:
   ai install [fish]           Install shell integration for Feature 2.
   ai init [fish]              Print the integration snippet (for `... | source`).
   ai config                   Show the effective configuration.
+  ai version                  Show the version (also -V / --version).
 
 Global option (may lead the args):  --model <name>
 """
@@ -23,6 +24,7 @@ from dataclasses import dataclass, field
 
 from rich.console import Console
 
+from . import __version__
 from . import ask as ask_mod
 from . import chat as chat_mod
 from . import commands
@@ -59,9 +61,11 @@ ai — CLI for OpenAI-compatible models
   ai install [fish]         Install shell integration (enables ai -N)
   ai init [fish]            Print integration snippet (ai init fish | source)
   ai config                 Show effective configuration
+  ai version                Show the version
 
 Options:
   -p, --print               Print a single answer instead of starting a chat
+  -V, --version             Show the version
   -i, --interactive         Start an interactive chat (now the default; kept for
                             compatibility)
   --model <name>            Override the model for this call
@@ -110,6 +114,10 @@ def main(argv: list[str] | None = None) -> int:
     if argv and argv[0] in ("-h", "--help", "help"):
         # markup=False: bracketed placeholders like [text...] would be eaten as markup.
         console.print(USAGE, highlight=False, markup=False)
+        return 0
+
+    if argv and argv[0] in ("-V", "--version", "version"):
+        console.print(f"ai {__version__}", highlight=False)
         return 0
 
     # Subcommands.

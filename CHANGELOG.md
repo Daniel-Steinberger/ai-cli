@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   automatically instead of failing.
 
 ### Added
+- **Version output:** `ai --version` / `-V` / `ai version`. `ai_cli.__version__` is
+  read from the installed package metadata, so `pyproject.toml` stays the only
+  place the version is defined. Previously `ai --version` was sent to the model as
+  a question.
 - **`@path` references.** `@datei.py` / `@verzeichnis` in a question attaches that
   file's content (or the directory listing) as context — in the chat and with `-p`
   / `-p -N`. Paths are completed in the popup (`file`/`directory` as meta text,

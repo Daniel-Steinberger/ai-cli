@@ -85,6 +85,22 @@ def test_help_runs(capsys):
     assert "ai install [fish]" in out
 
 
+def test_version_flags_and_subcommand(capsys):
+    import ai_cli
+
+    for argv in (["--version"], ["-V"], ["version"]):
+        assert cli.main(argv) == 0
+        assert capsys.readouterr().out.strip() == f"ai {ai_cli.__version__}"
+
+
+def test_version_matches_the_package_metadata():
+    import ai_cli
+
+    # Derived from the installed metadata, so pyproject stays the only source.
+    assert ai_cli.__version__ != "0.0.0+unknown"
+    assert ai_cli.__version__[0].isdigit()
+
+
 def _stub_dispatch(monkeypatch, is_terminal=True):
     """Make cli.main() see (or not see) a terminal, and record which mode it picks."""
     seen = {}

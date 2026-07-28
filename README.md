@@ -213,6 +213,7 @@ ai init fish | source
 | `ai install [fish]`     | Install shell integration                    |
 | `ai init [fish]`        | Print integration snippet                    |
 | `ai config`             | Show effective configuration                 |
+| `ai version`            | Show the version (also `-V` / `--version`)   |
 | `-p`, `--print`         | Print a single answer instead of starting a chat |
 | `-i`, `--interactive`   | No-op (chat is the default); kept for compatibility |
 | `--model <name>`        | Override the model for one call              |
