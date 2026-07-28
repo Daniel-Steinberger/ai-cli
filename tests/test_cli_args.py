@@ -78,7 +78,11 @@ def test_offset_regex():
 
 def test_help_runs(capsys):
     assert cli.main(["--help"]) == 0
-    assert "Interactive chat" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Interactive chat" in out
+    # Bracketed placeholders must survive: Rich would read them as markup tags.
+    assert "ai -N [text...]" in out
+    assert "ai install [fish]" in out
 
 
 def _stub_dispatch(monkeypatch, is_terminal=True):

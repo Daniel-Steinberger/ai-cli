@@ -65,7 +65,7 @@ Options:
   -i, --interactive         Start an interactive chat (now the default; kept for
                             compatibility)
   --model <name>            Override the model for this call
-  --debug                   With -N: print the command(s) + output used as context
+  --debug                   With -N: print the context used (commands + output)
   -h, --help                Show this help
 """
 
@@ -108,7 +108,8 @@ def main(argv: list[str] | None = None) -> int:
     console = Console()
 
     if argv and argv[0] in ("-h", "--help", "help"):
-        console.print(USAGE, highlight=False)
+        # markup=False: bracketed placeholders like [text...] would be eaten as markup.
+        console.print(USAGE, highlight=False, markup=False)
         return 0
 
     # Subcommands.
@@ -149,7 +150,8 @@ def main(argv: list[str] | None = None) -> int:
                         debug=opts.debug, stdin_text=stdin_text)
 
     if not text and not stdin_text:
-        console.print(USAGE, highlight=False)
+        # markup=False: bracketed placeholders like [text...] would be eaten as markup.
+        console.print(USAGE, highlight=False, markup=False)
         return 0
 
     # Feature 1: free-form question (possibly with piped stdin as input).
