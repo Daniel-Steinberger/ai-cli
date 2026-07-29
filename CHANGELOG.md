@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-29
+
 ### Changed
 - **Interactive chat is now the default** (like `claude`). Plain `ai` opens the
   chat; `ai <frage>` opens it with the question as the first turn; `ai -N [text]`
@@ -13,6 +15,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `-i`/`--interactive` is kept as a no-op alias. Without a usable terminal
   (redirected output, non-interactive script) `ai` falls back to print mode
   automatically instead of failing.
+- `-N` now uses the **last N commands** as context (oldest first), not just the
+  N-th last single command. `-1` is the previous command, `-3` the last three.
 
 ### Added
 - **Version output:** `ai --version` / `-V` / `ai version`. `ai_cli.__version__` is
@@ -41,6 +45,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `commands.py` (command registry + dispatch + completions). New dependency
   `prompt_toolkit` (drives the chat prompt and the popup); stdlib `readline`
   remains the fallback when it is unavailable, minus the popup.
+- **Piped stdin as context:** when input is piped into `ai` (stdin is not a TTY),
+  it is read and attached to the question/instruction — e.g.
+  `cat err.log | ai "why?"` or `… | jq -r .extract | ai "übersetze das"`. Works with
+  Feature 1, `-N` and the chat (which reconnects to `/dev/tty` for input). With
+  `-p` the run-it prompt is skipped when stdin is piped (no interactive answer
+  possible).
+- **Interactive chat mode**: multi-turn conversation with line editing/history,
+  exit via ^D or `exit`/`quit`/`bye`/`q`. Optional leading `-N` and/or text seed
+  the chat with recent-command context. Suggested commands can be run (y/N) and
+  their output is **fed back into the conversation**; commands run on the real
+  terminal via a PTY, so `sudo` can prompt for a password (hidden, and not
+  captured into the chat).
+- `--debug` flag: when used with `-N`, prints the command(s), exit code(s) and
+  output(s) used as context (before the model is contacted).
+- `config.toml.example` at the repo root, kept in sync with `config.py`.
 
 ### Fixed
 - **Runaway session recordings.** The fish integration now cleans up on every
@@ -57,33 +76,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   (backspace, line wrapping) were off by the prompt width. The prompt is now
   passed to the builtin `input()` with its escape sequences wrapped in
   `\001..\002` so readline counts the on-screen width correctly.
-
-### Added
-- **Piped stdin as context:** when input is piped into `ai` (stdin is not a TTY),
-  it is read and attached to the question/instruction — e.g.
-  `cat err.log | ai "why?"` or `… | jq -r .extract | ai "übersetze das"`. Works with
-  Feature 1, `-N` and `-i` (chat reconnects to `/dev/tty` for input). The run-it
-  prompt is skipped when stdin is piped (no interactive answer possible).
-- **Interactive chat mode** (`ai -i`): multi-turn conversation with readline line
-  editing/history, exit via ^D or `exit`/`quit`/`bye`/`q`. Optional leading `-N`
-  and/or text seed the chat with recent-command context. Suggested commands can be
-  run (y/N) and their output is **fed back into the conversation**; commands run on
-  the real terminal via a PTY, so `sudo` can prompt for a password (hidden, and not
-  captured into the chat). No new dependencies (`readline`/`pty` are stdlib).
-
-### Changed
-- `-N` now uses the **last N commands** as context (oldest first), not just the
-  N-th last single command. `-1` is the previous command, `-3` the last three.
-
-### Added
-- `--debug` flag: when used with `-N`, prints the command(s), exit code(s) and
-  output(s) used as context (before the model is contacted).
-
-### Docs
-- Clarify how to update a locally-installed tool (`uv tool install . --reinstall`);
-  `uv tool upgrade` only works for git/index installs.
-
-### Fixed
+- Bracketed placeholders (`[text...]`, `[fish]`, `/model [name]`) no longer vanish
+  from `ai --help` and `/help`: those strings were parsed as Rich markup tags.
 - Recorder no longer lingers/busy-loops as an orphan after a terminal restart.
   The fish integration `exec`s the interactive shell inside `script(1)`. When the
   owning terminal process (e.g. `ptyxis-agent`) died *without* closing the pty —
@@ -106,8 +100,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `ai -N` immediately sees the most recent command instead of lagging behind
   `script`'s block buffer.
 
-### Added
-- `config.toml.example` at the repo root, kept in sync with `config.py`.
+### Docs
+- Clarify how to update a locally-installed tool (`uv tool install . --reinstall`);
+  `uv tool upgrade` only works for git/index installs.
 
 ## [0.1.0] - 2026-06-24
 

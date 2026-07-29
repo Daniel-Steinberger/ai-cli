@@ -1,6 +1,6 @@
 [project]
 name = "ai-cli"
-version = "0.1.0"
+version = "0.2.0"
 description = "CLI tool for interacting with OpenAI-API-compatible models, with shell-context awareness"
 readme = "README.md"
 authors = [
