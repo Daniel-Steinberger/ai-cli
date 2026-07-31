@@ -22,6 +22,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   busy-looping on a reader-less FIFO (not possible under `SIGKILL`/OOM, where the
   next shell start reaps it). Set `AI_CLI_FILTER_DEBUG=1` to have the filter log
   what it reads. **Re-run `ai install` and restart your shell.**
+- Pruning now removes leftover recordings with no live writer above **10 MiB**
+  (was 500 MiB) — that is the size a filtered recording is capped at, so anything
+  larger is a leftover from before the cap existed.
 
 ### Fixed
 - **Ctrl-D did not end the shell** (and the terminal window would not close) with

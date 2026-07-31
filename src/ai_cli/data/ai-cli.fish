@@ -68,10 +68,11 @@ if status is-interactive
         #     systemd user manager, so a direct parent of pid 1 or comm `systemd`
         #     is our orphan signal (a healthy recorder's parent is the terminal
         #     emulator). HUP it and delete its runaway file.
-        #  2. PRUNE leftovers: typescripts with no live writer that are >500 MiB
-        #     or older than 14 days (there is otherwise no rotation). Files a live
-        #     recorder still holds open are protected so we never unlink an
-        #     in-progress session out from under `ai -N`.
+        #  2. PRUNE leftovers: typescripts with no live writer that are >10 MiB (the
+        #     size a filtered recording is capped at, so anything bigger is a
+        #     leftover from before) or older than 14 days — there is otherwise no
+        #     rotation. Files a live recorder still holds open are protected so we
+        #     never unlink an in-progress session out from under `ai -N`.
         if type -q ps; and type -q pgrep
             set -l __ai_live
             for __ai_pid in (pgrep -u $USER -x script 2>/dev/null)
@@ -89,7 +90,7 @@ if status is-interactive
                 end
             end
             if type -q find
-                for __ai_f in (find "$dir" -maxdepth 1 -name '*.typescript' -type f \( -size +500M -o -mtime +14 \) 2>/dev/null)
+                for __ai_f in (find "$dir" -maxdepth 1 -name '*.typescript' -type f \( -size +10M -o -mtime +14 \) 2>/dev/null)
                     contains -- "$__ai_f" $__ai_live; and continue
                     rm -f "$__ai_f" 2>/dev/null
                 end
