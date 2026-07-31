@@ -24,6 +24,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   what it reads. **Re-run `ai install` and restart your shell.**
 
 ### Fixed
+- **Ctrl-D did not end the shell** (and the terminal window would not close) with
+  the filtered recording in place. The filter was started from the shell, so it was
+  a child of `script(1)` — and script waits for its children before exiting. It also
+  inherited the pty slave on stdin, and script only sees EOF on the master once
+  nobody holds the slave. The filter now drops all inherited terminal descriptors
+  (`os.setsid()` plus `/dev/null` on stdin/stdout/stderr), double-forks so it is
+  re-parented to init, and watches the shell's pid — passed as a third argument —
+  to know when script is gone. As a backstop against that pid being recycled, it
+  also exits once the write end of the FIFO has stayed closed for 10 seconds.
 - **`MemoryError` in `ai -N`.** `read_session_text()` loaded the whole typescript
   into memory; a session that ran a full-screen program (editor, TUI, `claude`)
   records every screen redraw and had grown to **84.5 GiB**, so the read died with

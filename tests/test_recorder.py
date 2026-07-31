@@ -183,6 +183,25 @@ def test_pump_keeps_reading_after_eof_while_the_writer_lives(tmp_path):
     assert [b.cmd for b in parse_blocks(written.decode())] == ["ls -l"]
 
 
+def test_pump_gives_up_once_the_write_end_stays_gone(tmp_path):
+    """Backstop for a recycled watch pid: if nothing holds the write end for longer
+    than the grace period, exit even though the watched pid still looks alive."""
+    fifo = tmp_path / "s.fifo"
+    os.mkfifo(fifo)
+    writer = recorder.RingWriter(str(tmp_path / "s.typescript"))
+    read_fd = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+    try:
+        with open(fifo, "wb") as fh:  # one writer, then gone for good
+            fh.write(b"data\n")
+        started = time.monotonic()
+        # watch_pid=1 (init) never dies, so only the grace period can end this.
+        recorder.pump(read_fd, writer, watch_pid=1, eof_grace=0.5)
+        assert time.monotonic() - started < 5
+    finally:
+        os.close(read_fd)
+        writer.close()
+
+
 def test_dying_filter_hangs_up_its_writer(tmp_path):
     """If the filter goes away, script(1) would be left writing into a reader-less
     FIFO — where it busy-loops and the terminal is unusable. So on the way out the

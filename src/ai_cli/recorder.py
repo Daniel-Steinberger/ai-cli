@@ -37,6 +37,9 @@ MAX_PENDING = 8192
 
 # Wait this long for script to show up on the write end before giving up.
 STARTUP_TIMEOUT = 30.0
+# Once the write end is gone for this long we exit even if the watched pid still
+# looks alive — guards against the pid having been recycled by an unrelated process.
+EOF_GRACE = 10.0
 
 _SEQ = re.compile(
     rb"\x1b\](?P<osc>[^\x07\x1b]*)(?:\x07|\x1b\\)"  # OSC … BEL / ST
@@ -122,6 +125,36 @@ class RingWriter:
             pass
 
 
+def _detach_terminal() -> None:
+    """Let go of every inherited terminal fd and leave the session.
+
+    Critical: the filter is started from the shell and inherits the pty slave on
+    stdin. script(1) exits when it reads EOF on the pty *master*, and that EOF only
+    arrives once nobody holds the slave any more. A filter still holding it means
+    Ctrl-D never ends the shell — script spins instead of exiting and the terminal
+    window will not close.
+    """
+    try:
+        devnull = os.open(os.devnull, os.O_RDWR)
+    except OSError:
+        return
+    keep_stderr = bool(os.environ.get("AI_CLI_FILTER_DEBUG"))
+    for target in (0, 1) if keep_stderr else (0, 1, 2):
+        try:
+            os.dup2(devnull, target)
+        except OSError:
+            pass
+    if devnull > 2:
+        try:
+            os.close(devnull)
+        except OSError:
+            pass
+    try:
+        os.setsid()  # no controlling terminal at all
+    except OSError:
+        pass  # already a session leader
+
+
 def _debug(message: str) -> None:
     """Diagnostics on stderr when AI_CLI_FILTER_DEBUG is set (the shell sends the
     filter's stderr to /dev/null, so this is opt-in only)."""
@@ -133,14 +166,47 @@ def _debug(message: str) -> None:
             pass
 
 
-def _parent_gone(initial_ppid: int) -> bool:
+def _daemonize() -> None:
+    """Fork twice so we end up re-parented to init.
+
+    We must not remain a child of script(1): script waits for its children before
+    exiting, so a filter hanging off it means Ctrl-D never ends the shell and the
+    terminal window stays open. Detached this way, script sees only its shell as a
+    child and exits normally — we watch it by pid instead (see `_writer_gone`).
+    """
+    if os.fork() > 0:
+        os._exit(0)
+    try:
+        os.setsid()
+    except OSError:
+        pass
+    if os.fork() > 0:
+        os._exit(0)
+
+
+def _writer_gone(watch_pid: int | None, initial_ppid: int) -> bool:
+    """Has the process feeding us disappeared?
+
+    With an explicit pid (production: the shell pid, which becomes script after its
+    exec) we probe that pid, because after `_daemonize` our own parent is init. The
+    parent-based fallback is what the tests use.
+    """
+    if watch_pid:
+        try:
+            os.kill(watch_pid, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            return False
+        return False
     ppid = os.getppid()
     return ppid != initial_ppid or ppid == 1
 
 
 def pump(fd: int, writer: RingWriter, *, initial_ppid: int | None = None,
          startup_timeout: float = STARTUP_TIMEOUT, state: dict | None = None,
-         stop_on_eof: bool = False) -> bool:
+         stop_on_eof: bool = False, watch_pid: int | None = None,
+         eof_grace: float = EOF_GRACE) -> bool:
     """Read the raw stream from `fd` until the writer closes it, filtering as we go.
 
     Returns True if any data was received, i.e. we really were script's sink. The
@@ -151,6 +217,7 @@ def pump(fd: int, writer: RingWriter, *, initial_ppid: int | None = None,
     pending = b""
     seen_data = False
     deadline = time.monotonic() + startup_timeout
+    no_writer_since = None
     while True:
         try:
             ready, _, _ = select.select([fd], [], [], 0.5)
@@ -165,9 +232,14 @@ def pump(fd: int, writer: RingWriter, *, initial_ppid: int | None = None,
                 continue
             except OSError:
                 return seen_data
+            if chunk == b"" and no_writer_since is None:
+                # read() == 0 on an O_NONBLOCK FIFO means "no writer attached", as
+                # opposed to BlockingIOError, which means "no data right now".
+                no_writer_since = time.monotonic()
             if chunk:
                 _debug(f"read {len(chunk)} bytes")
                 seen_data = True
+                no_writer_since = None
                 if state is not None:
                     state["fed"] = True
                 text, pending = filter_bytes(pending + chunk)
@@ -183,8 +255,12 @@ def pump(fd: int, writer: RingWriter, *, initial_ppid: int | None = None,
         # FIFO with no reader, where it busy-loops and the shell becomes unusable.
         if stop_on_eof and seen_data:
             return seen_data  # plain pipe: EOF is final (used by the tests)
-        if _parent_gone(ppid):
-            _debug("parent gone -> exit")
+        if _writer_gone(watch_pid, ppid):
+            _debug("writer gone -> exit")
+            return seen_data
+        if (seen_data and no_writer_since is not None
+                and time.monotonic() - no_writer_since > eof_grace):
+            _debug("write end gone for good -> exit")
             return seen_data
         if not seen_data and time.monotonic() > deadline:
             return seen_data  # nobody ever showed up on the write end (shell took the fallback)
@@ -200,11 +276,26 @@ def _int_env(name: str, default: int) -> int:
 
 
 def main(argv: list[str]) -> int:
-    """`ai _filter <fifo> <typescript>` — internal, started by the fish integration."""
+    """`ai _filter <fifo> <typescript> [watch-pid]` — internal, started by the shell.
+
+    `watch-pid` is the shell's pid, which becomes script(1) after its exec: we exit
+    when it goes away. Passing it also enables detaching from the process tree.
+    """
     if len(argv) < 2:
         return 2
     fifo, out_path = argv[0], argv[1]
+    watch_pid = None
+    if len(argv) > 2:
+        try:
+            watch_pid = int(argv[2])
+        except ValueError:
+            watch_pid = None
     ready = f"{fifo}.ready"
+    _detach_terminal()
+    if watch_pid:
+        # Only in the real shell chain; without a pid to watch there is no chain to
+        # detach from and the tests can drive main() directly.
+        _daemonize()
 
     def stop(signum, frame):
         raise SystemExit(0)
@@ -228,7 +319,7 @@ def main(argv: list[str]) -> int:
         # Signal readiness only once we can actually read and write.
         with open(ready, "wb"):
             pass
-        pump(fd, writer, state=state)
+        pump(fd, writer, state=state, watch_pid=watch_pid)
     except (SystemExit, KeyboardInterrupt):
         pass
     except OSError:
@@ -238,9 +329,9 @@ def main(argv: list[str]) -> int:
         # A reader-less FIFO makes script busy-loop and the shell unusable, so ending
         # the session is the lesser evil. `fed` guards the fallback case, where the
         # shell gave up on us and script legitimately writes the typescript itself.
-        if state["fed"] and not _parent_gone(ppid):
+        if state["fed"] and not _writer_gone(watch_pid, ppid):
             try:
-                os.kill(ppid, signal.SIGHUP)
+                os.kill(watch_pid or ppid, signal.SIGHUP)
             except OSError:
                 pass
         if writer is not None:

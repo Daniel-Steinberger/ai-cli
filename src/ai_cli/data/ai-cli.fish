@@ -127,11 +127,12 @@ if status is-interactive
         if type -q mkfifo; and type -q ai; and test (uname) != Darwin
             set -l __ai_fifo (string replace -r '\.typescript$' .fifo "$AI_CLI_SESSION")
             if mkfifo -m 600 "$__ai_fifo" 2>/dev/null
-                if type -q setpriv
-                    setpriv --pdeathsig HUP ai _filter "$__ai_fifo" "$AI_CLI_SESSION" >/dev/null 2>&1 &
-                else
-                    ai _filter "$__ai_fifo" "$AI_CLI_SESSION" >/dev/null 2>&1 &
-                end
+                # $fish_pid is this shell, which *becomes* script after the exec
+                # below: the filter watches that pid and exits with it. It also
+                # detaches itself from the process tree — as a child of script it
+                # would keep script from exiting, so Ctrl-D would neither end the
+                # shell nor close the terminal window.
+                ai _filter "$__ai_fifo" "$AI_CLI_SESSION" $fish_pid </dev/null >/dev/null 2>&1 &
                 disown 2>/dev/null
                 set -l __ai_ready 0
                 for __ai_i in (seq 100)

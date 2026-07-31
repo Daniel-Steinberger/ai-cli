@@ -61,6 +61,28 @@ fish
   Gefunden über die neue Diagnose-Option `AI_CLI_FILTER_DEBUG=1` (Filter loggt
   gelesene Chunks nach stderr; die Shell leitet stderr sonst nach `/dev/null`).
 
+### Ctrl-D beendete die Shell nicht (Nachtrag)
+
+Symptom: nach dem Umbau beendete `Ctrl-D` die Shell nicht mehr, das Terminalfenster
+blieb offen; `script` stand auf `R` (busy). Zwei Ursachen, beide beim Filter:
+
+1. Der Filter erbte den **pty-Slave auf stdin**. `script` beendet erst, wenn es auf
+   dem pty-**Master** EOF liest, und das kommt erst, wenn niemand mehr den Slave
+   hält. → Filter gibt jetzt alle Terminal-fds ab (`/dev/null` auf 0/1/2, `setsid`).
+2. Der Filter war **Kind von `script`**, und `script` wartet auf seine Kinder.
+   → Doppel-Fork: der Filter wird von init adoptiert. Damit er trotzdem weiß, wann
+   `script` endet, übergibt fish `$fish_pid` (diese PID *wird* nach dem `exec` zu
+   `script`) als dritten Parameter; der Filter pollt sie mit `kill(pid, 0)`.
+   `setpriv --pdeathsig` entfällt für den Filter (Parent ist ja init).
+
+Backstop gegen PID-Recycling: Bleibt die Schreibseite der FIFO länger als 10 s
+geschlossen (`EOF_GRACE`), endet der Filter auch dann, wenn die beobachtete PID noch
+zu existieren scheint. Unterscheidbar ist das, weil `read() == 0` bei `O_NONBLOCK`
+„kein Writer“ heißt, `BlockingIOError` dagegen „gerade keine Daten“.
+
+Verifiziert: `Ctrl-D` → PTY-Master liefert EOF (Fenster schließt), FIFO und
+`.ready` werden gelöscht, nur das Typescript bleibt.
+
 ### Absicherung, wenn der Filter stirbt
 
 Beim Beenden schickt der Filter seinem Parent (`script`) `SIGHUP`, sofern er
