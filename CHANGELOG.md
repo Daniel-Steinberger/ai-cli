@@ -5,6 +5,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- **`MemoryError` in `ai -N`.** `read_session_text()` loaded the whole typescript
+  into memory; a session that ran a full-screen program (editor, TUI, `claude`)
+  records every screen redraw and had grown to **84.5 GiB**, so the read died with
+  a traceback. Only the *end* of the recording is read now: an 8 MiB window at the
+  tail, doubled until it contains a finished command (`AIEND`), capped at 64 MiB.
+  If no command is in that window, the message says so instead of raising
+  (0.33 s against the real 84.5 GiB file). Every caller now catches
+  `context.CONTEXT_ERRORS` (`NoSessionError`/`ValueError`/`OSError`/`MemoryError`),
+  so a read failure can no longer surface as a traceback.
+- **Recordings no longer grow without bound.** The existing pruning only ever
+  touched typescripts with *no live writer*, so a healthy recorder in front of a
+  redraw-heavy TUI could fill the disk. A new `fish_postexec` guard punches a hole
+  into the front of its own session (`fallocate --punch-hole`) once its allocated
+  size passes 512 MiB, keeping the last 32 MiB — the part `ai -N` reads. A plain
+  truncate would free nothing, because `script` writes sequentially at a rising
+  offset rather than in append mode. Limits are overridable via `AI_CLI_MAX_BYTES`
+  / `AI_CLI_KEEP_BYTES`; the guard is skipped where `fallocate` is unavailable.
+  **Re-run `ai install` and restart your shell** to pick this up.
+
 ## [0.2.0] - 2026-07-29
 
 ### Changed

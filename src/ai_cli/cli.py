@@ -30,7 +30,7 @@ from . import chat as chat_mod
 from . import commands
 from . import integration
 from .config import load_config
-from .context import NoSessionError, get_blocks
+from .context import CONTEXT_ERRORS, get_blocks
 from .shell import detect_shell
 
 _OFFSET = re.compile(r"^-(\d+)$")
@@ -173,7 +173,7 @@ def _interactive(config, offset: int | None, initial_text: str, console: Console
     if offset is not None:
         try:
             blocks = get_blocks(offset)
-        except (NoSessionError, ValueError) as exc:
+        except CONTEXT_ERRORS as exc:
             console.print(f"[yellow]No command context:[/yellow] {exc}")
     return chat_mod.chat(config, console, shell, blocks=blocks,
                          initial_text=initial_text or None, piped_context=stdin_text)
@@ -183,7 +183,7 @@ def _explain(config, offset: int, instruction: str, console: Console, *,
              debug: bool = False, stdin_text: str | None = None) -> int:
     try:
         blocks = get_blocks(offset)
-    except (NoSessionError, ValueError) as exc:
+    except CONTEXT_ERRORS as exc:
         console.print(f"[red]Error:[/red] {exc}")
         return 1
     if debug:

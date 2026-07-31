@@ -24,6 +24,34 @@ if status is-interactive
                 printf '\x1b]1337;AIEND=%s\x07' $st
             end
         end
+
+        # Keep the recording from filling the disk. A full-screen program (editor,
+        # TUI, `claude`) redraws the whole screen continuously, and every redraw is
+        # recorded — such a session can reach tens of GB in a few hours. After each
+        # command, punch a hole into the FRONT of the file (fallocate -p) whenever
+        # its allocated size passes the limit, keeping the last chunk intact: the
+        # recent commands `ai -N` needs stay readable, the old redraw flood stops
+        # occupying blocks, and script(1) keeps writing at its current offset (a
+        # plain truncate would not free anything for a non-append writer).
+        # fish saves/restores $status around event handlers, so this does not
+        # disturb the prompt's exit status.
+        if type -q fallocate; and type -q du; and type -q stat
+            function __ai_cli_trim --on-event fish_postexec
+                set -q AI_CLI_SESSION; or return
+                # Override with AI_CLI_MAX_BYTES / AI_CLI_KEEP_BYTES if needed.
+                set -q AI_CLI_MAX_BYTES; and set -l limit $AI_CLI_MAX_BYTES
+                or set -l limit (math '512 * 1024 * 1024')
+                set -q AI_CLI_KEEP_BYTES; and set -l keep $AI_CLI_KEEP_BYTES
+                or set -l keep (math '32 * 1024 * 1024')
+                set -l used (du -s -B1 "$AI_CLI_SESSION" 2>/dev/null | string split -f1 \t)
+                string match -qr '^\d+$' -- "$used"; or return
+                test $used -gt $limit; or return
+                set -l size (stat -c %s "$AI_CLI_SESSION" 2>/dev/null)
+                string match -qr '^\d+$' -- "$size"; or return
+                set -l hole (math "$size - $keep")
+                test $hole -gt 0; and fallocate -p -o 0 -l $hole "$AI_CLI_SESSION" 2>/dev/null
+            end
+        end
     else if type -q script
         # Start recording, then re-exec fish inside it.
         set -q XDG_CACHE_HOME; and set -l base "$XDG_CACHE_HOME"; or set -l base "$HOME/.cache"

@@ -27,6 +27,11 @@ from .config import log_dir
 
 BEL = "\x07"
 
+# How much of the tail of a recording we look at (see read_session_text).
+TAIL_BYTES = 8 * 1024 * 1024
+MAX_TAIL_BYTES = 64 * 1024 * 1024
+_AIEND_MARKER = "\x1b]1337;AIEND="
+
 _MARKER = re.compile(
     r"\x1b\]1337;AICMD=(?P<cmd>[A-Za-z0-9+/=]*)\x07"
     r"|\x1b\]1337;AIOUT\x07"
@@ -41,6 +46,12 @@ _OTHER_ESC = re.compile(r"\x1b[@-Z\\-_]")
 
 class NoSessionError(RuntimeError):
     """Raised when no active recorded session can be found."""
+
+
+# Everything reading the recording can raise: a missing/renamed typescript (OSError),
+# a bad offset (ValueError), or a huge recording (MemoryError). Callers catch this
+# tuple and report it instead of dying with a traceback.
+CONTEXT_ERRORS = (NoSessionError, ValueError, OSError, MemoryError)
 
 
 @dataclass
@@ -81,6 +92,13 @@ def session_file() -> Path:
     )
 
 
+def _human_size(size: int) -> str:
+    for unit, limit in (("GiB", 1024 ** 3), ("MiB", 1024 ** 2), ("KiB", 1024)):
+        if size >= limit:
+            return f"{size / limit:.1f} {unit}"
+    return f"{size} B"
+
+
 def _decode_cmd(b64: str) -> str:
     try:
         return base64.b64decode(b64).decode("utf-8", errors="replace").strip()
@@ -112,9 +130,46 @@ def parse_blocks(text: str) -> list[CommandBlock]:
     return blocks
 
 
-def read_session_text(path: Path | None = None) -> str:
+def read_session_text(path: Path | None = None, *, window: int | None = None) -> str:
+    """Read the *end* of the recording — never the whole file.
+
+    A session that ran a full-screen program (an editor, a TUI, `claude`) records
+    every redraw, so a typescript can reach tens of GB; reading it whole raised
+    MemoryError. `ai -N` only ever needs the last few commands, which live at the
+    end. The window starts at `window` bytes and doubles until it contains a
+    finished command (an AIEND marker) or MAX_TAIL_BYTES is reached.
+    """
     path = path or session_file()
-    return path.read_text(encoding="utf-8", errors="replace")
+    window = window or TAIL_BYTES
+    size = path.stat().st_size
+    while True:
+        take = min(window, size)
+        with path.open("rb") as fh:
+            fh.seek(size - take)
+            text = fh.read(take).decode("utf-8", errors="replace")
+        if _AIEND_MARKER in text or take >= size or window >= MAX_TAIL_BYTES:
+            return text
+        window *= 2
+
+
+def _no_blocks_message(path: Path | None) -> str:
+    """Explain *why* nothing was found — a flooded recording reads very differently
+    from one that simply has no commands in it yet."""
+    try:
+        size = (path or session_file()).stat().st_size
+    except (OSError, NoSessionError):
+        size = 0
+    if size > MAX_TAIL_BYTES:
+        return (
+            f"No finished command in the last {_human_size(MAX_TAIL_BYTES)} of the "
+            f"recording ({_human_size(size)} in total) — a full-screen program "
+            "(editor, TUI) most likely flooded it with redraws. Start a new shell "
+            "for a fresh recording."
+        )
+    return (
+        "No previous commands recorded yet. Run `ai install` and restart your "
+        "shell, then run a command before using `ai -N`."
+    )
 
 
 def get_blocks(n: int, *, path: Path | None = None, max_output_chars: int = 6000) -> list[CommandBlock]:
@@ -124,10 +179,7 @@ def get_blocks(n: int, *, path: Path | None = None, max_output_chars: int = 6000
         raise ValueError("command offset must be >= 1")
     blocks = parse_blocks(read_session_text(path))
     if not blocks:
-        raise NoSessionError(
-            "No previous commands recorded yet. Run `ai install` and restart your "
-            "shell, then run a command before using `ai -N`."
-        )
+        raise NoSessionError(_no_blocks_message(path))
     selected = blocks[-n:]
     for block in selected:
         if len(block.output) > max_output_chars:

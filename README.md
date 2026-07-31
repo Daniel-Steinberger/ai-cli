@@ -200,6 +200,14 @@ Then `ai -1 explain` works. To try it without installing:
 ai init fish | source
 ```
 
+**Recording size.** Every screen redraw is recorded, so a full-screen program
+(editor, TUI, `claude`) can inflate a session to many GB. After each command the
+integration checks its own recording and, above 512 MiB of allocated space, frees
+the front of the file (`fallocate --punch-hole`) while keeping the last 32 MiB —
+the part `ai -N` reads. Override with `AI_CLI_MAX_BYTES` / `AI_CLI_KEEP_BYTES`.
+Recordings with no live writer are deleted above 500 MiB or after 14 days.
+`ai -N` itself only ever reads the tail of the file, never the whole thing.
+
 ## Commands
 
 | command                 | description                                  |

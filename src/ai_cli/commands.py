@@ -16,7 +16,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from .config import Config, config_file
-from .context import NoSessionError, get_blocks
+from .context import CONTEXT_ERRORS, get_blocks
 from .prompts import chat_context_message
 from .session import ChatSession
 
@@ -107,7 +107,7 @@ def _cmd_context(session: ChatSession, args: str) -> bool:
     n = int(raw)
     try:
         blocks = get_blocks(n)
-    except (NoSessionError, ValueError) as exc:
+    except CONTEXT_ERRORS as exc:
         session.console.print(f"[yellow]No command context:[/yellow] {exc}", highlight=False)
         return True
     session.add_context(chat_context_message(blocks), f"the last {len(blocks)} command(s)")
