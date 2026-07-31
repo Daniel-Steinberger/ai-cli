@@ -122,6 +122,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # Subcommands.
     if argv:
+        if argv[0] == "_filter":  # internal: recording sink, started by the shell
+            from .recorder import main as filter_main
+
+            return filter_main(argv[1:])
         if argv[0] == "install":
             return integration.install(argv[1] if len(argv) > 1 else "fish", console)
         if argv[0] == "init":

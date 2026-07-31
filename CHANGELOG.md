@@ -5,6 +5,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+- **Redraws are no longer recorded at all, and a recording never exceeds 10 MiB.**
+  `script(1)` now writes into a FIFO and a new filter process (`ai _filter`,
+  module `recorder.py`) writes the typescript: it drops CSI sequences (cursor
+  moves, colours — i.e. the screen redraws of editors and TUIs) and foreign OSC
+  sequences, keeps the plain text and our own OSC 1337 markers, and rotates the
+  file at 10 MiB (keeping the last 5 MiB, cut at a line boundary). Overridable via
+  `AI_CLI_MAX_BYTES` / `AI_CLI_KEEP_BYTES`. Measured: 8000 redraw sequences that
+  previously bloated the file now leave a 9 KB typescript with zero CSI sequences,
+  and `ai -N` still finds the commands. The filter must never stall (a full FIFO
+  blocks script and would freeze the shell), so write errors drop data instead, and
+  it opens the FIFO non-blocking and publishes a `.ready` flag — if it does not
+  appear, the shell falls back to writing the typescript directly. Should the
+  filter die anyway, it hangs up `script` on the way out rather than leave it
+  busy-looping on a reader-less FIFO (not possible under `SIGKILL`/OOM, where the
+  next shell start reaps it). Set `AI_CLI_FILTER_DEBUG=1` to have the filter log
+  what it reads. **Re-run `ai install` and restart your shell.**
+
 ### Fixed
 - **`MemoryError` in `ai -N`.** `read_session_text()` loaded the whole typescript
   into memory; a session that ran a full-screen program (editor, TUI, `claude`)

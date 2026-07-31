@@ -200,13 +200,22 @@ Then `ai -1 explain` works. To try it without installing:
 ai init fish | source
 ```
 
-**Recording size.** Every screen redraw is recorded, so a full-screen program
-(editor, TUI, `claude`) can inflate a session to many GB. After each command the
-integration checks its own recording and, above 512 MiB of allocated space, frees
-the front of the file (`fallocate --punch-hole`) while keeping the last 32 MiB —
-the part `ai -N` reads. Override with `AI_CLI_MAX_BYTES` / `AI_CLI_KEEP_BYTES`.
-Recordings with no live writer are deleted above 500 MiB or after 14 days.
-`ai -N` itself only ever reads the tail of the file, never the whole thing.
+**Recording size.** Screen redraws are not recorded, and a recording never exceeds
+**10 MiB**. `script` writes the raw stream into a FIFO, and a small filter process
+writes the typescript from it:
+
+```
+fish └── script ──► session.fifo ──► ai _filter ──► session.typescript
+```
+
+The filter drops terminal control sequences — the constant redraws of editors and
+TUIs, which used to inflate recordings to tens of GB — keeps the plain text and the
+command markers, and rotates the file at 10 MiB (keeping the last 5 MiB). Override
+with `AI_CLI_MAX_BYTES` / `AI_CLI_KEEP_BYTES`. If the filter cannot start, the shell
+falls back to writing the typescript directly, where a per-command guard frees the
+front of the file (`fallocate --punch-hole`) above the same limit. Recordings with
+no live writer are deleted above 500 MiB or after 14 days, and `ai -N` only ever
+reads the tail of a recording, never the whole file.
 
 ## Commands
 

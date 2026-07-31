@@ -25,24 +25,23 @@ if status is-interactive
             end
         end
 
-        # Keep the recording from filling the disk. A full-screen program (editor,
-        # TUI, `claude`) redraws the whole screen continuously, and every redraw is
-        # recorded — such a session can reach tens of GB in a few hours. After each
-        # command, punch a hole into the FRONT of the file (fallocate -p) whenever
-        # its allocated size passes the limit, keeping the last chunk intact: the
-        # recent commands `ai -N` needs stay readable, the old redraw flood stops
-        # occupying blocks, and script(1) keeps writing at its current offset (a
-        # plain truncate would not free anything for a non-append writer).
-        # fish saves/restores $status around event handlers, so this does not
-        # disturb the prompt's exit status.
+        # Safety net for the fallback path below (script writing the typescript
+        # directly, i.e. no filter process). A full-screen program redraws the
+        # screen continuously and every redraw would be recorded, so once the
+        # allocated size passes the limit we punch a hole into the FRONT of the file
+        # (fallocate -p) and keep only the tail — the part `ai -N` reads. A plain
+        # truncate would free nothing: script writes sequentially at a rising
+        # offset, not in append mode. fish saves/restores $status around event
+        # handlers, so this does not disturb the prompt's exit status.
         if type -q fallocate; and type -q du; and type -q stat
             function __ai_cli_trim --on-event fish_postexec
                 set -q AI_CLI_SESSION; or return
+                set -q AI_CLI_FILTERED; and return  # the filter already caps the file
                 # Override with AI_CLI_MAX_BYTES / AI_CLI_KEEP_BYTES if needed.
                 set -q AI_CLI_MAX_BYTES; and set -l limit $AI_CLI_MAX_BYTES
-                or set -l limit (math '512 * 1024 * 1024')
+                or set -l limit (math '10 * 1024 * 1024')
                 set -q AI_CLI_KEEP_BYTES; and set -l keep $AI_CLI_KEEP_BYTES
-                or set -l keep (math '32 * 1024 * 1024')
+                or set -l keep (math '5 * 1024 * 1024')
                 set -l used (du -s -B1 "$AI_CLI_SESSION" 2>/dev/null | string split -f1 \t)
                 string match -qr '^\d+$' -- "$used"; or return
                 test $used -gt $limit; or return
@@ -76,21 +75,28 @@ if status is-interactive
         if type -q ps; and type -q pgrep
             set -l __ai_live
             for __ai_pid in (pgrep -u $USER -x script 2>/dev/null)
-                set -l __ai_sess (ps -o args= -p $__ai_pid 2>/dev/null | string match -rg -- '(\S+\.typescript)')
+                # script writes either the typescript itself or, with the filter in
+                # front of it, a FIFO next to it — both count as a live session.
+                set -l __ai_sess (ps -o args= -p $__ai_pid 2>/dev/null | string match -rg -- '(\S+\.(?:typescript|fifo))')
                 test -n "$__ai_sess"; and string match -q -- "$dir/*" "$__ai_sess"; or continue
                 set -l __ai_ppid (ps -o ppid= -p $__ai_pid 2>/dev/null | string trim)
                 set -l __ai_pcomm (ps -o comm= -p $__ai_ppid 2>/dev/null | string trim)
                 if test "$__ai_ppid" = 1; or test "$__ai_pcomm" = systemd
                     kill -HUP $__ai_pid 2>/dev/null
-                    rm -f "$__ai_sess" 2>/dev/null
+                    rm -f "$__ai_sess" (string replace -r '\.fifo$' .typescript "$__ai_sess") 2>/dev/null
                 else
-                    set -a __ai_live "$__ai_sess"
+                    set -a __ai_live "$__ai_sess" (string replace -r '\.fifo$' .typescript "$__ai_sess")
                 end
             end
             if type -q find
                 for __ai_f in (find "$dir" -maxdepth 1 -name '*.typescript' -type f \( -size +500M -o -mtime +14 \) 2>/dev/null)
                     contains -- "$__ai_f" $__ai_live; and continue
                     rm -f "$__ai_f" 2>/dev/null
+                end
+                # Stale FIFOs (and their ready flags) from sessions that are gone.
+                for __ai_p in (find "$dir" -maxdepth 1 -name '*.fifo' 2>/dev/null)
+                    contains -- "$__ai_p" $__ai_live; and continue
+                    rm -f "$__ai_p" "$__ai_p.ready" 2>/dev/null
                 end
             end
         end
@@ -110,12 +116,46 @@ if status is-interactive
         # A clean Ctrl-D is unaffected: the parent stays alive and only this one
         # child exits normally. setpriv ships with util-linux alongside script;
         # fall back to bare script if it is somehow missing.
+        # Prefer recording THROUGH a filter: script writes the raw stream into a
+        # FIFO and `ai _filter` writes the typescript, dropping terminal control
+        # sequences (screen redraws are what used to inflate recordings to tens of
+        # GB) and capping the file at 10 MiB. The filter must be reading before
+        # script opens the FIFO — otherwise script's open() would block and the
+        # shell would never start — so we wait for its `.ready` flag and fall back
+        # to writing the typescript directly if it does not appear in time.
+        set -l __ai_target "$AI_CLI_SESSION"
+        if type -q mkfifo; and type -q ai; and test (uname) != Darwin
+            set -l __ai_fifo (string replace -r '\.typescript$' .fifo "$AI_CLI_SESSION")
+            if mkfifo -m 600 "$__ai_fifo" 2>/dev/null
+                if type -q setpriv
+                    setpriv --pdeathsig HUP ai _filter "$__ai_fifo" "$AI_CLI_SESSION" >/dev/null 2>&1 &
+                else
+                    ai _filter "$__ai_fifo" "$AI_CLI_SESSION" >/dev/null 2>&1 &
+                end
+                disown 2>/dev/null
+                set -l __ai_ready 0
+                for __ai_i in (seq 100)
+                    if test -e "$__ai_fifo.ready"
+                        set __ai_ready 1
+                        break
+                    end
+                    sleep 0.02
+                end
+                if test $__ai_ready -eq 1
+                    set __ai_target "$__ai_fifo"
+                    set -gx AI_CLI_FILTERED 1
+                else
+                    rm -f "$__ai_fifo" "$__ai_fifo.ready" 2>/dev/null
+                end
+            end
+        end
+
         if test (uname) = Darwin
             exec script -q -F "$AI_CLI_SESSION" fish
         else if type -q setpriv
-            exec setpriv --pdeathsig HUP script -q -f -e -c fish "$AI_CLI_SESSION"
+            exec setpriv --pdeathsig HUP script -q -f -e -c fish "$__ai_target"
         else
-            exec script -q -f -e -c fish "$AI_CLI_SESSION"
+            exec script -q -f -e -c fish "$__ai_target"
         end
     end
 end
