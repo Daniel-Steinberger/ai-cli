@@ -267,6 +267,51 @@ def pump(fd: int, writer: RingWriter, *, initial_ppid: int | None = None,
         time.sleep(0.05)  # do not spin: an EOF-ready FIFO selects readable forever
 
 
+def cap_recordings(directory=None, max_bytes: int | None = None,
+                   keep_bytes: int | None = None) -> int:
+    """Punch the front out of any recording that exceeds the cap. Returns bytes freed.
+
+    This runs on *every* `ai` invocation as a safety net independent of the shell
+    integration: a session started before the filter existed (or one where the
+    filter could not start) has no cap of its own, and a redraw-heavy TUI in such a
+    session fills the disk at gigabytes per hour. Punching keeps the tail — the part
+    `ai -N` reads — and leaves the writer's offset alone, so recording continues
+    unaffected. Never raises: this must not disturb the actual command.
+    """
+    import shutil
+    import subprocess
+
+    from .config import log_dir
+
+    max_bytes = max_bytes or _int_env("AI_CLI_MAX_BYTES", MAX_BYTES)
+    keep_bytes = keep_bytes or _int_env("AI_CLI_KEEP_BYTES", KEEP_BYTES)
+    keep_bytes = min(keep_bytes, max_bytes // 2)
+    freed = 0
+    try:
+        directory = directory or log_dir()
+        if not shutil.which("fallocate") or not directory.is_dir():
+            return 0
+        for path in directory.glob("*.typescript"):
+            try:
+                st = path.stat()
+                if st.st_blocks * 512 <= max_bytes:
+                    continue
+                hole = st.st_size - keep_bytes
+                if hole <= 0:
+                    continue
+                # fallocate --punch-hole: a plain truncate would free nothing here,
+                # because script(1) writes sequentially at a rising offset.
+                subprocess.run(["fallocate", "-p", "-o", "0", "-l", str(hole), str(path)],
+                               check=True, capture_output=True, timeout=30)
+                freed += st.st_blocks * 512 - path.stat().st_blocks * 512
+                _debug(f"punched {path.name}")
+            except (OSError, subprocess.SubprocessError):
+                continue
+    except (OSError, ValueError):
+        return freed
+    return freed
+
+
 def _int_env(name: str, default: int) -> int:
     try:
         value = int(os.environ.get(name, ""))

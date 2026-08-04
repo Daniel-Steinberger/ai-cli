@@ -22,6 +22,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   busy-looping on a reader-less FIFO (not possible under `SIGKILL`/OOM, where the
   next shell start reaps it). Set `AI_CLI_FILTER_DEBUG=1` to have the filter log
   what it reads. **Re-run `ai install` and restart your shell.**
+- **Every `ai` invocation now caps oversized recordings** (`recorder.cap_recordings`,
+  ~2 ms when there is nothing to do). The per-session guards only protect sessions
+  that were started *with* them: a long-running shell from before the filter existed
+  has no cap of its own, and a redraw-heavy TUI in such a session fills the disk at
+  gigabytes per hour — measured 7 GB/h, 440 GiB in five days. Any recording above
+  the limit gets the front punched out, keeping the tail `ai -N` reads and leaving
+  the writer's offset untouched, so recording continues unaffected.
 - Pruning now removes leftover recordings with no live writer above **10 MiB**
   (was 500 MiB) — that is the size a filtered recording is capped at, so anything
   larger is a leftover from before the cap existed.

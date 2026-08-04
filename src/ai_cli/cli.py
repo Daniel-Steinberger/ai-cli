@@ -133,6 +133,12 @@ def main(argv: list[str] | None = None) -> int:
         if argv[0] == "config":
             return _show_config(console)
 
+    # Safety net on every run: cap recordings that grew past the limit (a session
+    # started before the filter existed has no cap of its own). Never fails loudly.
+    from .recorder import cap_recordings
+
+    cap_recordings()
+
     opts = _extract_options(argv)
     rest = opts.rest
 

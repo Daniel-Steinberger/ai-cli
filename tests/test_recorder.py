@@ -108,6 +108,31 @@ def test_ring_writer_keeps_recent_command_blocks(tmp_path):
     assert blocks[-1].output == "output 299"
 
 
+def test_cap_recordings_punches_oversized_files(tmp_path):
+    """The safety net for sessions without a cap of their own: free the front of the
+    file, keep the tail that `ai -N` reads, leave the writer's offset alone."""
+    import shutil
+
+    if not shutil.which("fallocate"):
+        return  # nothing to test without fallocate
+    big = tmp_path / "big.typescript"
+    big.write_bytes(b"x" * 300_000 + b"TAIL-MARKER")
+    small = tmp_path / "small.typescript"
+    small.write_bytes(b"y" * 1000)
+
+    freed = recorder.cap_recordings(tmp_path, max_bytes=65536, keep_bytes=16384)
+
+    assert freed > 0
+    assert big.stat().st_size == 300_011  # apparent size unchanged (offset intact)
+    assert big.stat().st_blocks * 512 <= 65536  # but the blocks are gone
+    assert big.read_bytes().endswith(b"TAIL-MARKER")  # tail survives
+    assert small.read_bytes() == b"y" * 1000  # untouched
+
+
+def test_cap_recordings_is_quiet_without_a_directory(tmp_path):
+    assert recorder.cap_recordings(tmp_path / "nope") == 0
+
+
 def _pump_through_pipe(payload: bytes, tmp_path, **kwargs):
     """Run pump() against a pipe (a FIFO behaves the same for our purposes)."""
     read_fd, write_fd = os.pipe()

@@ -213,7 +213,9 @@ TUIs, which used to inflate recordings to tens of GB — keeps the plain text an
 command markers, and rotates the file at 10 MiB (keeping the last 5 MiB). Override
 with `AI_CLI_MAX_BYTES` / `AI_CLI_KEEP_BYTES`. If the filter cannot start, the shell
 falls back to writing the typescript directly, where a per-command guard frees the
-front of the file (`fallocate --punch-hole`) above the same limit. Recordings with
+front of the file (`fallocate --punch-hole`) above the same limit. Independently of
+all that, **every `ai` invocation** caps any recording that is over the limit — which
+also covers shells that were started before the filter existed. Recordings with
 no live writer are deleted above 10 MiB or after 14 days, and `ai -N` only ever
 reads the tail of a recording, never the whole file.
 
